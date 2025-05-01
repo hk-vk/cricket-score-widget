@@ -257,18 +257,29 @@ def update_homepage_scores_loop():
         fetched_matches = fetch_and_parse_cricbuzz()
         if isinstance(fetched_matches, list):
              matches_data = fetched_matches # Update global list used by menu
-             current_tooltip = format_tooltip(matches_data)
+             current_tooltip_raw = format_tooltip(matches_data)
              if tray_icon:
                  try:
+                     # Aggressive Truncation: Always truncate before assignment
+                     final_tooltip = current_tooltip_raw
+                     if len(final_tooltip) > TOOLTIP_MAX_LEN:
+                          logging.warning(f"Tooltip exceeded MAX_LEN ({TOOLTIP_MAX_LEN}) before assignment. Force truncating.")
+                          final_tooltip = final_tooltip[:TOOLTIP_MAX_LEN - 3] + "..."
+                     elif not final_tooltip: # Ensure tooltip is never empty
+                          final_tooltip = " " # Use a single space if empty
+
                      # Log before setting title
-                     log_tooltip = current_tooltip.replace("\n", "\\n").replace("\r", "\\r") # Escape newlines for logging
-                     logging.debug(f"Attempting to set tooltip (len={len(current_tooltip)}): [{log_tooltip[:200]}{'...' if len(log_tooltip)>200 else ''}]")
-                     tray_icon.title = current_tooltip
+                     log_tooltip = final_tooltip.replace("\n", "\\n").replace("\r", "\\r")
+                     logging.debug(f"Attempting to set tooltip (len={len(final_tooltip)}): [{log_tooltip[:200]}{'...' if len(log_tooltip)>200 else ''}]")
+
+                     tray_icon.title = final_tooltip
+                     current_tooltip = final_tooltip # Update global state *after* successful assignment
+
                      # Update the menu itself when matches_data changes
                      tray_icon.menu = create_menu()
                      logging.info(f"Homepage matches updated. Tooltip set.")
                  except ValueError as e:
-                      logging.error(f"ValueError setting tooltip: {e}. Tooltip was (len={len(current_tooltip)}): [{log_tooltip[:200]}{'...' if len(log_tooltip)>200 else ''}]")
+                      logging.error(f"ValueError setting tooltip: {e}. Tooltip was (len={len(final_tooltip)}): [{log_tooltip[:200]}{'...' if len(log_tooltip)>200 else ''}]")
                  except Exception as e:
                       logging.error(f"Unexpected error setting tooltip or menu: {e}", exc_info=True)
              else:
