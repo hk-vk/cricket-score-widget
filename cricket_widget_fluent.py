@@ -499,39 +499,32 @@ class TrayApplication(QApplication):
         if self._flyout_view and self._flyout_view.isVisible():
             logging.debug("Flyout already visible.")
             return
-
-        # If a previous view exists but isn't visible (or got closed), discard it
         if self._flyout_view:
-            self._flyout_view.closed.disconnect() # Disconnect previous signal if any
+            self._flyout_view.closed.disconnect()
             self._flyout_view = None
-
         logging.debug("Showing flyout.")
-        # Ensure content is up-to-date before showing
         if self.selected_match_info:
              self.flyout_content.update_score(self.selected_match_info)
         else:
-             # Reset to default message if no match selected
              self.flyout_content.update_score({'title': 'No match selected', 'score': '-'})
 
         # --- Calculate Position --- #
-        # Get tray icon geometry (this is platform-specific and often difficult/unreliable)
-        # Fallback to cursor position is more common
-        # geom = self.tray_icon.geometry() # Often returns invalid rect
         cursor_pos = QCursor.pos()
-        target_widget_for_pos = self._dummy_target_widget # Use dummy for positioning
-        target_widget_for_pos.move(cursor_pos) # Move dummy to cursor
+        target_widget_for_pos = self._dummy_target_widget
+        target_widget_for_pos.move(cursor_pos)
 
-        # Create and show the flyout relative to the target widget (at cursor pos)
+        # --- Corrected Flyout.make call --- #
         self._flyout_view = Flyout.make(
-            widget=self.flyout_content,
-            target=target_widget_for_pos, # Position relative to this widget
-            parent=target_widget_for_pos, # Parent determines lifetime scope potentially
+            self.flyout_content,           # Content widget as first positional argument
+            target=target_widget_for_pos,
+            parent=target_widget_for_pos,
             aniType=FlyoutAnimationType.FADE_IN
         )
 
         if self._flyout_view:
-            # Connect the closed signal to clean up our reference
             self._flyout_view.closed.connect(self._on_flyout_closed)
+            # Flyout.make should handle showing, but call show() just in case
+            # (Some widget libraries require explicit show)
             self._flyout_view.show()
             logging.info(f"Flyout shown near cursor at {cursor_pos}")
         else:
