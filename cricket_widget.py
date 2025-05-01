@@ -223,52 +223,26 @@ def fetch_detailed_score(url):
 TOOLTIP_MAX_LEN = 127
 
 def format_tooltip(matches):
-    """Formats the tooltip string from match data, building incrementally and truncating strictly."""
+    """Formats the tooltip string from match data, very strictly truncated."""
     if not matches:
-        return "No live matches found or error fetching."
+        return "Fetching matches..."
 
-    tooltip_string = ""
-    separator = " | "
-
+    parts_to_join = []
     for i, match in enumerate(matches):
         if i >= MAX_MATCHES_TOOLTIP:
-            break # Limit number of matches included
+            break
+        # Limit length of each part individually first to avoid huge strings
+        title = match.get('title', 'N/A')[:50] # Limit title part
+        score = match.get('score', 'N/A')[:50] # Limit score part
+        parts_to_join.append(f"{title}: {score}")
 
-        part = f"{match.get('title', 'N/A')}: {match.get('score', 'N/A')}"
+    if not parts_to_join:
+         return "No matches found."
 
-        # Check if adding this part (plus separator if needed) exceeds the limit
-        part_len = len(part)
-        sep_len = len(separator) if tooltip_string else 0 # No separator for first part
-        available_space = TOOLTIP_MAX_LEN - len(tooltip_string) - sep_len
+    tooltip_string = " | ".join(parts_to_join)
 
-        if available_space <= 3: # Not enough space even for ellipsis
-            if not tooltip_string: # If first part is already too long
-                 tooltip_string = part[:TOOLTIP_MAX_LEN - 3] + "..."
-            break # Stop adding parts
-
-        if part_len > available_space:
-            # Truncate this part to fit, adding ellipsis
-            part = part[:available_space - 3] + "..."
-
-        # Append the part (and separator if needed)
-        if tooltip_string:
-            tooltip_string += separator + part
-        else:
-            tooltip_string = part
-
-        # Safety break if something went wrong and it's still too long
-        if len(tooltip_string) > TOOLTIP_MAX_LEN:
-             logging.warning("Tooltip exceeded max length during build, breaking early.")
-             # Attempt to truncate the current result forcefully
-             tooltip_string = tooltip_string[:TOOLTIP_MAX_LEN - 3] + "..."
-             break
-
-    if not tooltip_string:
-         return "No matches to display."[:TOOLTIP_MAX_LEN]
-
-    # Final safety check (should be unnecessary with the loop logic, but keep it)
+    # Final truncation if the joined string is still too long
     if len(tooltip_string) > TOOLTIP_MAX_LEN:
-        logging.warning(f"Tooltip exceeded MAX_LEN ({TOOLTIP_MAX_LEN}) post-build. Force truncating.")
         tooltip_string = tooltip_string[:TOOLTIP_MAX_LEN - 3] + "..."
 
     return tooltip_string
@@ -478,7 +452,7 @@ def on_detail_window_close():
 
 # --- Tray Menu Actions ---
 
-def on_match_selected(match_info):
+def on_match_selected(match_info, icon=None, item=None):
     """Callback when a specific match is selected from the menu."""
     global selected_match_url, detailed_update_thread, detail_window, detail_title_var, detail_score_var
     logging.info(f"on_match_selected called with: {match_info}")
@@ -506,11 +480,9 @@ def on_match_selected(match_info):
         detail_score_var.set(initial_score)
     else:
         logging.warning("Detail window or its variables not ready during match selection. Will be updated by queue later.")
-        # Attempt to create if it doesn't exist, but don't rely on vars being set here
         if detail_window is None or not detail_window.winfo_exists():
              create_detail_window()
 
-    # Show the window
     logging.debug("Calling show_detail_window from on_match_selected.")
     show_detail_window()
 
@@ -521,7 +493,6 @@ def on_match_selected(match_info):
         detailed_update_thread.start()
     else:
         logging.info("Detailed update thread already running (selection changed).")
-        # The running loop will detect the change in selected_match_url and restart fetching
 
 
 def on_refresh(icon=None, item=None):
@@ -536,13 +507,13 @@ def on_quit(icon=None, item=None):
     logging.info("Quit triggered.")
     app_running = False # Signal threads to stop
 
-    # Stop threads (allow short time)
+    # Stop threads (allow short time, non-blocking)
     if detailed_update_thread and detailed_update_thread.is_alive():
-        logging.info("Waiting for detailed update thread to stop...")
-        detailed_update_thread.join(timeout=1)
+        logging.info("Waiting briefly for detailed update thread to stop...")
+        detailed_update_thread.join(timeout=0.1)
     if update_thread_instance and update_thread_instance.is_alive():
-         logging.info("Waiting for homepage update thread to stop...")
-         update_thread_instance.join(timeout=1)
+         logging.info("Waiting briefly for homepage update thread to stop...")
+         update_thread_instance.join(timeout=0.1)
 
     # Stop pystray
     if tray_icon:
