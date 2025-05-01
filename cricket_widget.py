@@ -227,33 +227,27 @@ def format_tooltip(matches):
     if not matches:
         return "No live matches found or error fetching."
 
-    tooltip_parts = []
-    full_tooltip = ""
+    # Take only up to MAX_MATCHES_TOOLTIP items
+    parts_to_join = []
     for i, match in enumerate(matches):
-        # Use homepage score for tooltip, it's updated less often
-        part = f"{match.get('title', 'N/A')}: {match.get('score', 'N/A')}"
-        tooltip_parts.append(part)
-        # Check length as we build
-        current_joined = " | ".join(tooltip_parts)
-        if len(current_joined) > TOOLTIP_MAX_LEN:
-            # If adding this part made it too long, use the previous state
-            # And truncate *that* to fit, adding ellipsis
-            previous_joined = " | ".join(tooltip_parts[:-1])
-            if len(previous_joined) <= TOOLTIP_MAX_LEN - 4: # Check if we have space for " ..."
-                full_tooltip = previous_joined + " ..."
-            else:
-                 # If even the previous state + ellipsis is too long, just truncate the previous state hard
-                 full_tooltip = previous_joined[:TOOLTIP_MAX_LEN - 3] + "..."
-            break # Stop adding more matches
-        else:
-             full_tooltip = current_joined # Update the potentially final string
+        if i >= MAX_MATCHES_TOOLTIP:
+            break
+        # Use homepage score for tooltip
+        parts_to_join.append(f"{match.get('title', 'N/A')}: {match.get('score', 'N/A')}")
 
-    # Final check in case the loop finished without breaking but result is still too long
-    # (e.g., only one very long match title/score)
-    if len(full_tooltip) > TOOLTIP_MAX_LEN:
-         full_tooltip = full_tooltip[:TOOLTIP_MAX_LEN - 3] + "..."
+    if not parts_to_join:
+         return "No matches to display."[:TOOLTIP_MAX_LEN]
 
-    return full_tooltip
+    tooltip_string = " | ".join(parts_to_join)
+
+    # Truncate the final string if it exceeds the limit
+    if len(tooltip_string) > TOOLTIP_MAX_LEN:
+        # Ensure enough space for ellipsis
+        truncated = tooltip_string[:TOOLTIP_MAX_LEN - 3] + "..."
+        logging.warning(f"Tooltip truncated. Original length: {len(tooltip_string)}, Truncated: {len(truncated)}")
+        return truncated
+    else:
+        return tooltip_string
 
 # --- Background Update Loops ---
 
@@ -444,6 +438,7 @@ def on_detail_window_close():
     global selected_match_url
     logging.info("Detail window close requested by user.")
     if detail_window and detail_window.winfo_exists():
+        logging.info("Withdrawing detail window on close.")
         detail_window.withdraw()
     selected_match_url = None # Deselect match when window is explicitly closed
     logging.info("Match deselected due to window close.")
@@ -453,7 +448,14 @@ def on_detail_window_close():
 
 def on_match_selected(match_info):
     """Callback when a specific match is selected from the menu."""
-    global selected_match_url, detailed_update_thread
+    global selected_match_url, detailed_update_thread, detail_window, detail_title_var, detail_score_var
+    logging.info(f"on_match_selected called with: {match_info}")
+
+    # Check if Tkinter is initialized
+    if tk_root is None:
+        logging.error("Match selection ignored: Tkinter root not initialized.")
+        return
+
     url = match_info.get('url')
     title = match_info.get('title', 'N/A')
     initial_score = match_info.get('score', 'Fetching...') # Use homepage score initially
@@ -465,32 +467,29 @@ def on_match_selected(match_info):
     logging.info(f"Match selected: {title} ({url})")
     selected_match_url = url
 
-    # Update window immediately with initial data
-    if detail_window and detail_window.winfo_exists():
+    # Ensure window and vars exist before updating
+    if detail_window and detail_window.winfo_exists() and detail_title_var and detail_score_var:
+        logging.debug("Updating existing detail window variables.")
         detail_title_var.set(title)
         detail_score_var.set(initial_score)
-    elif detail_window is None:
-         create_detail_window() # Ensure window exists
-         if detail_window:
-             detail_title_var.set(title)
-             detail_score_var.set(initial_score)
-    else: # Window destroyed
-        create_detail_window() # Recreate
-        if detail_window:
-             detail_title_var.set(title)
-             detail_score_var.set(initial_score)
+    else:
+        logging.warning("Detail window or its variables not ready during match selection. Will be updated by queue later.")
+        # Attempt to create if it doesn't exist, but don't rely on vars being set here
+        if detail_window is None or not detail_window.winfo_exists():
+             create_detail_window()
 
-
+    # Show the window
+    logging.debug("Calling show_detail_window from on_match_selected.")
     show_detail_window()
 
     # Start or restart the detailed update thread
     if detailed_update_thread is None or not detailed_update_thread.is_alive():
-        logging.info("Starting detailed update thread.")
+        logging.info("Starting detailed update thread from on_match_selected.")
         detailed_update_thread = threading.Thread(target=detailed_update_loop, daemon=True)
         detailed_update_thread.start()
     else:
         logging.info("Detailed update thread already running (selection changed).")
-        # The running loop will detect the change in selected_match_url
+        # The running loop will detect the change in selected_match_url and restart fetching
 
 
 def on_refresh(icon=None, item=None):
@@ -566,17 +565,30 @@ def create_menu():
 def on_left_click(icon, item):
      """Callback for left-clicking the tray icon. Toggles detail window."""
      global detail_window
-     logging.debug("Left click detected.")
-     if detail_window and detail_window.winfo_exists() and detail_window.state() == 'normal':
-         logging.info("Detail window visible, hiding on left click.")
-         hide_detail_window()
-     else:
-         logging.info("Detail window hidden or not created, showing on left click.")
-         show_detail_window()
-         # If no match is selected, the window will show "No match selected"
-         # Optionally, could automatically select the first match if none is selected:
-         # if not selected_match_url and matches_data:
-         #     on_match_selected(matches_data[0])
+     logging.info("on_left_click called.")
+
+     # Check if Tkinter is initialized
+     if tk_root is None:
+          logging.error("Left click ignored: Tkinter root not initialized.")
+          return
+
+     # Check if window exists and is currently visible ('normal' state)
+     try:
+         # Check exists first to avoid errors if destroyed
+         window_exists = detail_window and detail_window.winfo_exists()
+         is_visible = window_exists and detail_window.state() == 'normal'
+         logging.debug(f"Left click: window_exists={window_exists}, is_visible={is_visible}")
+
+         if is_visible:
+             logging.info("Detail window visible, hiding on left click.")
+             hide_detail_window()
+         else:
+             # Window either hidden, iconified, or not created yet
+             logging.info("Detail window hidden or not created, showing on left click.")
+             show_detail_window() # Handles creation if needed
+
+     except Exception as e:
+         logging.error(f"Error during on_left_click: {e}", exc_info=True)
 
 
 # --- Main Setup ---
