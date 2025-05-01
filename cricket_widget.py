@@ -327,25 +327,57 @@ def detailed_update_loop():
 def create_detail_window():
     """Creates the persistent Tkinter window for detailed scores (initially hidden)."""
     global detail_window, detail_title_var, detail_score_var
-    if detail_window is not None:
-        return # Already created
+    if detail_window is not None and detail_window.winfo_exists():
+        logging.info("Detail window already exists.")
+        return # Already created and exists
 
     logging.info("Creating detail score window.")
     detail_window = tk.Toplevel(tk_root)
     detail_window.title("Live Score")
-    detail_window.geometry("300x80") # Small window size
+    detail_window.geometry("320x100") # Slightly larger
     detail_window.resizable(False, False)
-    detail_window.attributes("-toolwindow", True) # Remove min/max buttons
+    # detail_window.attributes("-toolwindow", True) # Remove this for standard window feel
     detail_window.protocol("WM_DELETE_WINDOW", on_detail_window_close) # Handle close button
 
+    # Basic Styling
+    window_bg = "#f0f0f0" # Light grey background
+    text_color = "#333333" # Dark grey text
+    title_font = ('Segoe UI', 10, 'bold')
+    score_font = ('Segoe UI', 12)
+
+    detail_window.config(bg=window_bg)
+
+    # Frame for content padding
+    content_frame = ttk.Frame(detail_window, padding="10 10 10 10", style='Content.TFrame')
+    content_frame.pack(expand=True, fill='both')
+
+    # Style for the frame
+    style = ttk.Style()
+    style.configure('Content.TFrame', background=window_bg)
+
     detail_title_var = tk.StringVar(detail_window, "No match selected")
-    detail_score_var = tk.StringVar(detail_window, "")
+    detail_score_var = tk.StringVar(detail_window, "-")
 
-    title_label = ttk.Label(detail_window, textvariable=detail_title_var, anchor="center", font=('Segoe UI', 9, 'bold'))
-    title_label.pack(pady=(5, 0), padx=5, fill='x')
+    title_label = ttk.Label(
+        content_frame,
+        textvariable=detail_title_var,
+        anchor="center",
+        font=title_font,
+        background=window_bg,
+        foreground=text_color,
+        wraplength=280 # Wrap long titles
+    )
+    title_label.pack(pady=(0, 5), fill='x')
 
-    score_label = ttk.Label(detail_window, textvariable=detail_score_var, anchor="center", font=('Segoe UI', 11))
-    score_label.pack(pady=(0, 5), padx=5, fill='x')
+    score_label = ttk.Label(
+        content_frame,
+        textvariable=detail_score_var,
+        anchor="center",
+        font=score_font,
+        background=window_bg,
+        foreground=text_color
+    )
+    score_label.pack(pady=(5, 0), fill='x')
 
     detail_window.withdraw() # Start hidden
     logging.info("Detail score window created and hidden.")
@@ -378,33 +410,43 @@ def update_detail_window_from_queue():
         tk_root.after(500, update_detail_window_from_queue) # Check queue every 500ms
 
 def show_detail_window():
-    """Makes the detail window visible."""
-    if detail_window and detail_window.winfo_exists():
-        logging.info("Showing detail window.")
-        detail_window.deiconify()
-    elif detail_window is None:
-         logging.warning("Tried to show detail window, but it was not created.")
-         create_detail_window() # Try creating it now
-         if detail_window: detail_window.deiconify()
-    else: # Window existed but was destroyed
-         logging.warning("Tried to show detail window, but it was destroyed. Recreating.")
-         create_detail_window() # Recreate if destroyed
-         if detail_window: detail_window.deiconify()
+    """Makes the detail window visible or creates it if needed."""
+    global detail_window
+    # Ensure root exists
+    if tk_root is None:
+        logging.error("Cannot show detail window, Tk root does not exist.")
+        return
+
+    # Check if exists and is valid window
+    if detail_window is None or not detail_window.winfo_exists():
+        logging.warning("Detail window doesn't exist or was destroyed. Recreating.")
+        create_detail_window()
+        # If creation failed, detail_window might still be None
+        if detail_window is None:
+             logging.error("Failed to recreate detail window.")
+             return
+
+    logging.info("Showing detail window.")
+    detail_window.deiconify()
+    detail_window.lift() # Bring to front
+    detail_window.focus_force() # Try to give focus
 
 
 def hide_detail_window():
     """Hides the detail window."""
-    global selected_match_url
+    # Don't deselect match here, only when explicitly closed by user or quit
     if detail_window and detail_window.winfo_exists():
-        logging.info("Hiding detail window.")
+        logging.info("Hiding detail window (withdraw).")
         detail_window.withdraw()
-        selected_match_url = None # Deselect match when window is hidden/closed
-        logging.info("Match deselected.")
 
 def on_detail_window_close():
-    """Callback when the user closes the detail window."""
+    """Callback when the user closes the detail window. Hides and deselects."""
+    global selected_match_url
     logging.info("Detail window close requested by user.")
-    hide_detail_window()
+    if detail_window and detail_window.winfo_exists():
+        detail_window.withdraw()
+    selected_match_url = None # Deselect match when window is explicitly closed
+    logging.info("Match deselected due to window close.")
 
 
 # --- Tray Menu Actions ---
@@ -519,6 +561,24 @@ def create_menu():
 
     return pystray.Menu(*menu_items)
 
+# --- Left Click Action ---
+
+def on_left_click(icon, item):
+     """Callback for left-clicking the tray icon. Toggles detail window."""
+     global detail_window
+     logging.debug("Left click detected.")
+     if detail_window and detail_window.winfo_exists() and detail_window.state() == 'normal':
+         logging.info("Detail window visible, hiding on left click.")
+         hide_detail_window()
+     else:
+         logging.info("Detail window hidden or not created, showing on left click.")
+         show_detail_window()
+         # If no match is selected, the window will show "No match selected"
+         # Optionally, could automatically select the first match if none is selected:
+         # if not selected_match_url and matches_data:
+         #     on_match_selected(matches_data[0])
+
+
 # --- Main Setup ---
 
 def main():
@@ -534,7 +594,18 @@ def main():
         tk_root.withdraw() # Hide the main root window
         # Set up style if needed (optional)
         style = ttk.Style()
-        style.theme_use('vista') # Or 'xpnative', 'clam', etc.
+        # Try common themes for a slightly more modern look
+        available_themes = style.theme_names()
+        logging.debug(f"Available ttk themes: {available_themes}")
+        if 'vista' in available_themes:
+             style.theme_use('vista')
+             logging.info("Using 'vista' ttk theme.")
+        elif 'clam' in available_themes:
+             style.theme_use('clam')
+             logging.info("Using 'clam' ttk theme.")
+        elif 'xpnative' in available_themes:
+             style.theme_use('xpnative')
+             logging.info("Using 'xpnative' ttk theme.")
         # Initialize Queue
         score_update_queue = queue.Queue()
         # Create the hidden detail window
@@ -577,10 +648,11 @@ def main():
         tray_icon = pystray.Icon(
             'cricket_widget',
             icon_image,
-            current_tooltip, # Initial tooltip
-            menu=create_menu() # Menu is dynamic now
+            current_tooltip,
+            menu=create_menu(), # Right-click menu
+            left_click_action=on_left_click # Assign left-click action
         )
-        logging.info("pystray icon created.")
+        logging.info("pystray icon created with left-click action.")
     except Exception as e:
          logging.error(f"Failed to create pystray icon: {e}", exc_info=True)
          print("Error: Failed to create system tray icon. Exiting.", file=sys.stderr)
