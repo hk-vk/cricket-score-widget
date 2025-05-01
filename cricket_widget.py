@@ -223,31 +223,55 @@ def fetch_detailed_score(url):
 TOOLTIP_MAX_LEN = 127
 
 def format_tooltip(matches):
-    """Formats the tooltip string from match data, truncating if too long."""
+    """Formats the tooltip string from match data, building incrementally and truncating strictly."""
     if not matches:
         return "No live matches found or error fetching."
 
-    # Take only up to MAX_MATCHES_TOOLTIP items
-    parts_to_join = []
+    tooltip_string = ""
+    separator = " | "
+
     for i, match in enumerate(matches):
         if i >= MAX_MATCHES_TOOLTIP:
-            break
-        # Use homepage score for tooltip
-        parts_to_join.append(f"{match.get('title', 'N/A')}: {match.get('score', 'N/A')}")
+            break # Limit number of matches included
 
-    if not parts_to_join:
+        part = f"{match.get('title', 'N/A')}: {match.get('score', 'N/A')}"
+
+        # Check if adding this part (plus separator if needed) exceeds the limit
+        part_len = len(part)
+        sep_len = len(separator) if tooltip_string else 0 # No separator for first part
+        available_space = TOOLTIP_MAX_LEN - len(tooltip_string) - sep_len
+
+        if available_space <= 3: # Not enough space even for ellipsis
+            if not tooltip_string: # If first part is already too long
+                 tooltip_string = part[:TOOLTIP_MAX_LEN - 3] + "..."
+            break # Stop adding parts
+
+        if part_len > available_space:
+            # Truncate this part to fit, adding ellipsis
+            part = part[:available_space - 3] + "..."
+
+        # Append the part (and separator if needed)
+        if tooltip_string:
+            tooltip_string += separator + part
+        else:
+            tooltip_string = part
+
+        # Safety break if something went wrong and it's still too long
+        if len(tooltip_string) > TOOLTIP_MAX_LEN:
+             logging.warning("Tooltip exceeded max length during build, breaking early.")
+             # Attempt to truncate the current result forcefully
+             tooltip_string = tooltip_string[:TOOLTIP_MAX_LEN - 3] + "..."
+             break
+
+    if not tooltip_string:
          return "No matches to display."[:TOOLTIP_MAX_LEN]
 
-    tooltip_string = " | ".join(parts_to_join)
-
-    # Truncate the final string if it exceeds the limit
+    # Final safety check (should be unnecessary with the loop logic, but keep it)
     if len(tooltip_string) > TOOLTIP_MAX_LEN:
-        # Ensure enough space for ellipsis
-        truncated = tooltip_string[:TOOLTIP_MAX_LEN - 3] + "..."
-        logging.warning(f"Tooltip truncated. Original length: {len(tooltip_string)}, Truncated: {len(truncated)}")
-        return truncated
-    else:
-        return tooltip_string
+        logging.warning(f"Tooltip exceeded MAX_LEN ({TOOLTIP_MAX_LEN}) post-build. Force truncating.")
+        tooltip_string = tooltip_string[:TOOLTIP_MAX_LEN - 3] + "..."
+
+    return tooltip_string
 
 # --- Background Update Loops ---
 
@@ -261,10 +285,18 @@ def update_homepage_scores_loop():
              matches_data = fetched_matches # Update global list used by menu
              current_tooltip = format_tooltip(matches_data)
              if tray_icon:
-                 tray_icon.title = current_tooltip
-                 # Important: Update the menu itself when matches_data changes
-                 tray_icon.menu = create_menu()
-                 logging.info(f"Homepage matches updated. Tooltip: {current_tooltip}")
+                 try:
+                     # Log before setting title
+                     log_tooltip = current_tooltip.replace("\n", "\\n").replace("\r", "\\r") # Escape newlines for logging
+                     logging.debug(f"Attempting to set tooltip (len={len(current_tooltip)}): [{log_tooltip[:200]}{'...' if len(log_tooltip)>200 else ''}]")
+                     tray_icon.title = current_tooltip
+                     # Update the menu itself when matches_data changes
+                     tray_icon.menu = create_menu()
+                     logging.info(f"Homepage matches updated. Tooltip set.")
+                 except ValueError as e:
+                      logging.error(f"ValueError setting tooltip: {e}. Tooltip was (len={len(current_tooltip)}): [{log_tooltip[:200]}{'...' if len(log_tooltip)>200 else ''}]")
+                 except Exception as e:
+                      logging.error(f"Unexpected error setting tooltip or menu: {e}", exc_info=True)
              else:
                  logging.warning("Tray icon not available for homepage update.")
         else:
