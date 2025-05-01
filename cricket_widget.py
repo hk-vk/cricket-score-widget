@@ -33,62 +33,94 @@ update_thread_instance = None
 
 def fetch_and_parse_cricbuzz():
     """Fetches Cricbuzz homepage and parses live scores."""
-    global matches_data
     logging.info("Attempting to fetch scores from Cricbuzz.")
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.google.com/'
     }
+    live_matches_data = []
     try:
-        response = requests.get(CRICBUZZ_URL, headers=headers, timeout=15)
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        response = requests.get(CRICBUZZ_URL, headers=headers, timeout=20)
+        response.raise_for_status()
         logging.info(f"Successfully fetched Cricbuzz homepage (Status: {response.status_code}).")
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # --- Scraping Logic (Needs refinement based on current Cricbuzz HTML) ---
-        # This part is highly dependent on Cricbuzz's website structure and might break.
-        # We need to inspect the live site to find reliable selectors.
-        # Placeholder logic - assuming a structure like list items for matches.
-        live_matches = []
-        # Example: Find a container div and then list items within it
-        # match_elements = soup.select('div.live-matches-container > ul > li.match-item') # Fictional selector
+        # --- Adapted Scraping Logic ---
+        # Find match preview cards. Selectors might need adjustment if Cricbuzz changes layout.
+        # This targets typical containers for live match scores on the homepage.
+        match_elements = soup.select('div.cb-mtch-crd-rt-itm') # Look for match card items
+        if not match_elements:
+             # Try another potential selector structure if the first fails
+             match_elements = soup.select('li[class*="cb-view-all-ga cb-match-card cb-bg-white"]')
 
-        # --- !! Placeholder - Replace with actual scraping logic after inspection !! ---
-        # For now, simulate finding some matches or indicating none found
-        # if not match_elements:
-        #     logging.warning("Could not find live match elements using current selectors.")
-        #     return []
+        if not match_elements:
+            logging.warning("Could not find live match elements using known selectors.")
+            return [] # Return empty list if no matches found
 
-        # for item in match_elements:
-        #     title_tag = item.select_one('.match-title') # Fictional
-        #     score_tag = item.select_one('.match-score') # Fictional
-        #     if title_tag and score_tag:
-        #         live_matches.append({
-        #             'title': title_tag.text.strip(),
-        #             'score': score_tag.text.strip()
-        #         })
-        #     if len(live_matches) >= MAX_MATCHES_TOOLTIP: # Limit matches shown in tooltip
-        #         break
-        # --- End Placeholder --- 
+        logging.info(f"Found {len(match_elements)} potential match elements.")
 
-        # Simulate finding matches for now
-        if not matches_data: # Only add dummy data if empty
-            live_matches = [
-                {'title': 'IND vs AUS - T20', 'score': 'IND 180/5 (20 ov)'},
-                {'title': 'ENG vs PAK - Test', 'score': 'ENG 350/7 (90 ov) - Stumps'},
-                {'title': 'NZ vs SA - ODI', 'score': 'SA 120/2 (25.3 ov) - Need 130 more'}
-            ]
-            logging.info(f"Using placeholder match data.")
-        else:
-             live_matches = matches_data # Keep existing if refresh
+        for item in match_elements:
+            title = "N/A"
+            score = "N/A"
+            status = ""
 
-        matches_data = live_matches
-        logging.info(f"Parsed {len(matches_data)} matches.")
-        return matches_data
+            # Extract Match Title (Team names etc.)
+            title_tag = item.select_one('h3.cb-lv-scr-mtch-hdr') # Common header for matches
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+            else:
+                 # Fallback for different card structures
+                 title_tag_alt = item.select_one('div[class*="cb-card-match-title"] a')
+                 if title_tag_alt:
+                     title = title_tag_alt.get_text(strip=True)
+
+            # Extract Score / Status
+            # Cricbuzz uses various structures, try common ones
+            score_div = item.select_one('div.cb-lv-scrs-col') # Often contains live score details
+            if score_div:
+                score = score_div.get_text(separator=" ", strip=True)
+            else:
+                # Fallback: Look for specific score/status elements if the main div isn't there
+                status_tag = item.select_one('div[class*="cb-text-live"], div[class*="cb-text-complete"], span[class*="cb-text-preview"]')
+                if status_tag:
+                    status = status_tag.get_text(strip=True)
+
+                # Try to find team scores separately if a combined score div wasn't found
+                team1_score_tag = item.select_one('span.cb-lv-scrs-t1')
+                team2_score_tag = item.select_one('span.cb-lv-scrs-t2')
+                if team1_score_tag:
+                    score = team1_score_tag.get_text(strip=True)
+                    if team2_score_tag:
+                        score += " | " + team2_score_tag.get_text(strip=True)
+                elif status: # If we found a status but no score, use the status as score
+                     score = status
+
+
+            # Clean up title/score a bit
+            title = ' '.join(title.split()) # Remove extra whitespace
+            score = ' '.join(score.split()) # Remove extra whitespace
+
+            # Skip if it doesn't look like a valid match entry
+            if title == "N/A" and score == "N/A":
+                logging.info("Skipping element, couldn't extract title or score.")
+                continue
+
+            live_matches_data.append({'title': title, 'score': score})
+            logging.debug(f"Extracted Match: Title='{title}', Score='{score}'")
+
+            if len(live_matches_data) >= MAX_MATCHES_TOOLTIP * 2: # Fetch a bit more than needed for tooltip, in case some are invalid later
+                 logging.info(f"Reached fetch limit ({MAX_MATCHES_TOOLTIP * 2}).")
+                 break
+        # --- End Scraping Logic ---
+
+        logging.info(f"Successfully parsed {len(live_matches_data)} matches.")
+        return live_matches_data
 
     except requests.exceptions.RequestException as e:
         logging.error(f"Network error fetching Cricbuzz: {e}")
     except Exception as e:
-        logging.error(f"Error parsing Cricbuzz HTML: {e}")
+        logging.error(f"Error parsing Cricbuzz HTML: {e}", exc_info=True) # Add traceback
 
     return [] # Return empty list on error
 
