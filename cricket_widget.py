@@ -219,17 +219,41 @@ def fetch_detailed_score(url):
     return None # Return None on error
 
 # --- Tooltip Formatting ---
+# Windows API limit for tooltips is 128 chars, we use 127 to be safe.
+TOOLTIP_MAX_LEN = 127
+
 def format_tooltip(matches):
-    """Formats the tooltip string from match data."""
+    """Formats the tooltip string from match data, truncating if too long."""
     if not matches:
         return "No live matches found or error fetching."
+
     tooltip_parts = []
+    full_tooltip = ""
     for i, match in enumerate(matches):
-        if i >= MAX_MATCHES_TOOLTIP:
-            break
         # Use homepage score for tooltip, it's updated less often
-        tooltip_parts.append(f"{match.get('title', 'N/A')}: {match.get('score', 'N/A')}")
-    return " | ".join(tooltip_parts)
+        part = f"{match.get('title', 'N/A')}: {match.get('score', 'N/A')}"
+        tooltip_parts.append(part)
+        # Check length as we build
+        current_joined = " | ".join(tooltip_parts)
+        if len(current_joined) > TOOLTIP_MAX_LEN:
+            # If adding this part made it too long, use the previous state
+            # And truncate *that* to fit, adding ellipsis
+            previous_joined = " | ".join(tooltip_parts[:-1])
+            if len(previous_joined) <= TOOLTIP_MAX_LEN - 4: # Check if we have space for " ..."
+                full_tooltip = previous_joined + " ..."
+            else:
+                 # If even the previous state + ellipsis is too long, just truncate the previous state hard
+                 full_tooltip = previous_joined[:TOOLTIP_MAX_LEN - 3] + "..."
+            break # Stop adding more matches
+        else:
+             full_tooltip = current_joined # Update the potentially final string
+
+    # Final check in case the loop finished without breaking but result is still too long
+    # (e.g., only one very long match title/score)
+    if len(full_tooltip) > TOOLTIP_MAX_LEN:
+         full_tooltip = full_tooltip[:TOOLTIP_MAX_LEN - 3] + "..."
+
+    return full_tooltip
 
 # --- Background Update Loops ---
 
