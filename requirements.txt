@@ -1,4 +1,5 @@
 requests
 beautifulsoup4
-pystray
-Pillow 
+Pillow
+PyQt5==5.15.10
+PyQt-Fluent-Widgets==1.7.0 
