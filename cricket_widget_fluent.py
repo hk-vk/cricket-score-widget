@@ -356,17 +356,40 @@ class TrayApplication(QApplication):
         logging.info("TrayApplication initialized and tray icon shown.")
 
     def populate_menu(self):
-         """Populates the right-click context menu."""
-         self.menu.clear()
-         # Placeholder actions
-         action_loading = self.menu.addAction("Loading matches...")
-         action_loading.setEnabled(False)
-         self.menu.addSeparator()
-         refresh_action = self.menu.addAction("Refresh List")
-         refresh_action.triggered.connect(self.trigger_refresh)
-         self.menu.addSeparator()
-         quit_action = self.menu.addAction("Exit")
-         quit_action.triggered.connect(self.quit_app)
+        global matches_data_cache
+        logging.debug(f"Populating menu. Cache size: {len(matches_data_cache)}")
+        self.menu.clear()
+        if not matches_data_cache:
+            action = self.menu.addAction("Fetching matches...")
+            action.setEnabled(False)
+            logging.debug("Menu: Added 'Fetching matches...' item.")
+        else:
+            added_count = 0
+            for i, match in enumerate(matches_data_cache):
+                if i >= MAX_MATCHES_MENU: break
+                display_text = f"{match.get('title', 'N/A')} - {match.get('score', '?')}"
+                # Ensure display_text is not excessively long for menu item
+                display_text = display_text[:100] + '...' if len(display_text) > 100 else display_text
+                action = self.menu.addAction(display_text)
+                # Use lambda to capture the specific match info for the slot
+                match_copy = match.copy() # Important: Capture a copy for the lambda
+                action.triggered.connect(lambda checked=False, m=match_copy: self.select_match(m))
+                logging.debug(f"Menu: Added action for '{match.get('title')}'")
+                added_count += 1
+
+            if added_count == 0:
+                 action = self.menu.addAction("No live matches found")
+                 action.setEnabled(False)
+                 logging.debug("Menu: Added 'No live matches found' item.")
+
+        self.menu.addSeparator()
+        refresh_action = self.menu.addAction("Refresh List")
+        refresh_action.triggered.connect(self.trigger_refresh)
+        logging.debug("Menu: Added 'Refresh List' action.")
+        self.menu.addSeparator()
+        quit_action = self.menu.addAction("Exit")
+        quit_action.triggered.connect(self.quit_app)
+        logging.debug("Menu: Added 'Exit' action.")
 
     def on_tray_activated(self, reason):
         """Handles tray icon activation (clicks)."""
@@ -425,13 +448,11 @@ class TrayApplication(QApplication):
         logging.info(f"Match selected via menu: {match_info.get('title')}")
         if url:
             selected_match_url_cache = url
-            self.selected_match_info = match_info # Store the whole dict
-            # Don't update a non-existent persistent flyout here
+            self.selected_match_info = match_info
             self.detailed_fetcher.set_url(url)
             if not self.detailed_fetcher.isRunning():
                 self.detailed_fetcher.start()
-            # Show the flyout
-            self.show_flyout() # Will create a new flyout with current data
+            self.show_flyout()
         else:
             logging.warning(f"Selected match has no URL: {match_info.get('title')}")
             self.tray_icon.showMessage("Error", "Cannot get details for this match.", QSystemTrayIcon.Warning, 2000)
