@@ -6,6 +6,7 @@ import time
 import threading
 import logging
 import requests
+import re
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageQt # Need ImageQt for QPixmap conversion
 
@@ -501,9 +502,8 @@ class ScoreFlyoutWidget(QWidget):
         return mini_widget
 
 class MinimizedScoreWidget(QWidget):
-    """A compact always-on-top widget showing just the score."""
+    """An ultra-compact always-on-top widget showing just the essential score."""
     
-    minimizeClicked = pyqtSignal()
     expandClicked = pyqtSignal()
     closeClicked = pyqtSignal()
     
@@ -512,68 +512,57 @@ class MinimizedScoreWidget(QWidget):
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
-        # Main layout
-        self.main_layout = QVBoxLayout(self)
+        # Main layout - even more compact
+        self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(2, 2, 2, 2)
+        self.main_layout.setSpacing(0)
         
         # Content container with background
         self.container = QWidget(self)
         self.container.setObjectName("miniContainer")
-        self.container_layout = QVBoxLayout(self.container)
-        self.container_layout.setContentsMargins(10, 6, 10, 6)
-        self.container_layout.setSpacing(2)
+        self.container_layout = QHBoxLayout(self.container)
+        self.container_layout.setContentsMargins(8, 3, 4, 3)
+        self.container_layout.setSpacing(1)
         
-        # Header with title and controls
-        self.header = QWidget(self.container)
-        self.header_layout = QHBoxLayout(self.header)
-        self.header_layout.setContentsMargins(0, 0, 0, 0)
-        self.header_layout.setSpacing(4)
-        
-        # Match title (shortened)
-        self.title_label = BodyLabel("Match", self.header)
-        self.title_label.setObjectName("miniTitle")
-        title_font = QFont()
-        title_font.setPointSize(8)
-        self.title_label.setFont(title_font)
-        
-        # Control buttons
-        self.btn_expand = QPushButton("□", self.header)
-        self.btn_expand.setObjectName("miniButton")
-        self.btn_expand.setFixedSize(16, 16)
-        self.btn_expand.clicked.connect(self.expandClicked.emit)
-        
-        self.btn_close = QPushButton("×", self.header)
-        self.btn_close.setObjectName("miniButton")
-        self.btn_close.setFixedSize(16, 16)
-        self.btn_close.clicked.connect(self.closeClicked.emit)
-        
-        # Add to header layout
-        self.header_layout.addWidget(self.title_label, 1)
-        self.header_layout.addWidget(self.btn_expand, 0)
-        self.header_layout.addWidget(self.btn_close, 0)
-        
-        # Score label
+        # Only show the score
         self.score_label = BodyLabel("", self.container)
         self.score_label.setObjectName("miniScore")
         score_font = QFont()
-        score_font.setPointSize(11)
+        score_font.setPointSize(10)
         score_font.setBold(True)
         self.score_label.setFont(score_font)
         
+        # Control buttons in a more subtle way
+        self.buttons_widget = QWidget(self.container)
+        self.buttons_widget.setFixedWidth(22)
+        self.buttons_layout = QVBoxLayout(self.buttons_widget)
+        self.buttons_layout.setContentsMargins(0, 0, 0, 0)
+        self.buttons_layout.setSpacing(1)
+        
+        self.btn_expand = QPushButton("□", self.buttons_widget)
+        self.btn_expand.setObjectName("miniButton")
+        self.btn_expand.setFixedSize(18, 12)
+        self.btn_expand.clicked.connect(self.expandClicked.emit)
+        
+        self.btn_close = QPushButton("×", self.buttons_widget)
+        self.btn_close.setObjectName("miniButton")
+        self.btn_close.setFixedSize(18, 12)
+        self.btn_close.clicked.connect(self.closeClicked.emit)
+        
+        self.buttons_layout.addWidget(self.btn_expand)
+        self.buttons_layout.addWidget(self.btn_close)
+        
         # Add widgets to layouts
-        self.container_layout.addWidget(self.header)
-        self.container_layout.addWidget(self.score_label)
+        self.container_layout.addWidget(self.score_label, 1)
+        self.container_layout.addWidget(self.buttons_widget, 0)
         self.main_layout.addWidget(self.container)
         
         # Set up styling
         self.setStyleSheet("""
             #miniContainer {
                 background-color: #1E1E1E;
-                border-radius: 8px;
+                border-radius: 5px;
                 border: 1px solid #333333;
-            }
-            #miniTitle {
-                color: #CCCCCC;
             }
             #miniScore {
                 color: #FFFFFF;
@@ -581,8 +570,10 @@ class MinimizedScoreWidget(QWidget):
             #miniButton {
                 background: transparent;
                 border: none;
-                color: #AAAAAA;
+                color: #777777;
                 font-weight: bold;
+                font-size: 8px;
+                padding: 0px;
             }
             #miniButton:hover {
                 color: #FFFFFF;
@@ -594,11 +585,10 @@ class MinimizedScoreWidget(QWidget):
         self.offset = QPoint()
         
     def update_data(self, title, score):
-        """Update the widget with match data."""
-        # Shorten title to at most 20 chars
-        short_title = (title[:17] + "...") if len(title) > 20 else title
-        self.title_label.setText(short_title)
+        """Update the widget with just the score data."""
+        # Only use the score, no title
         self.score_label.setText(score)
+        self.adjustSize()
         
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -950,7 +940,42 @@ class TrayApplication(QApplication):
         if self._mini_widget and self.selected_match_info:
             title = self.selected_match_info.get('title', 'No match')
             score = self.selected_match_info.get('score', '-')
-            self._mini_widget.update_data(title, score)
+            
+            # Format exactly as specified: "RCB 126/2 (12.1) CRR: 10.36"
+            simplified_score = score
+            try:
+                # Extract team name
+                team_name = ""
+                if " vs " in title:
+                    teams = title.split(" vs ")
+                    team_name = teams[0].strip()
+                
+                # Try to extract runs/wickets and overs
+                runs_pattern = r'(\d+)/(\d+)'
+                runs_match = re.search(runs_pattern, score)
+                
+                overs_pattern = r'\((\d+\.\d+|\d+)\)'
+                overs_match = re.search(overs_pattern, score)
+                
+                # Extract current run rate
+                crr_pattern = r'CRR:\s*(\d+\.\d+)'
+                crr_match = re.search(crr_pattern, score)
+                
+                # Build the simplified score format
+                if runs_match and team_name:
+                    runs = runs_match.group(0)
+                    overs = overs_match.group(0) if overs_match else ""
+                    crr = f"CRR: {crr_match.group(1)}" if crr_match else ""
+                    
+                    simplified_score = f"{team_name} {runs} {overs} {crr}".strip()
+                else:
+                    # Fallback format if regex matching fails
+                    simplified_score = score.split("opt to bowl")[0].strip()
+            except Exception as e:
+                # If any parsing error, use the original score
+                logging.debug(f"Could not simplify score, using original: {e}")
+                
+            self._mini_widget.update_data(title, simplified_score)
             logging.debug("Minimized widget updated")
             
     def on_mini_expand(self):
