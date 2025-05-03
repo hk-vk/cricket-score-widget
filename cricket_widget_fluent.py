@@ -322,48 +322,38 @@ class TrayApplication(QApplication):
         super().__init__(args)
         logging.info("Initializing TrayApplication (Fluent version)...")
         self.setQuitOnLastWindowClosed(False)
-        global matches_data_cache # Allow modification
+        global matches_data_cache
         matches_data_cache = []
-        self.selected_match_info = None # Store full dict of selected match
-        self._flyout_view = None # Store the active flyout view instance
-
-        # --- Load Icon ---
+        self.selected_match_info = None
+        self._flyout_view = None
         self.icon = QIcon(ICON_PATH)
         if self.icon.isNull():
             logging.warning(f"Failed to load icon from {ICON_PATH}, using default.")
             self.icon = create_default_icon()
             if self.icon.isNull():
                  logging.error("Failed to create default icon. Exiting.")
-                 sys.exit(1) # Exit if no icon can be loaded/created
-
-        # --- Create Tray Icon ---
+                 sys.exit(1)
         self.tray_icon = QSystemTrayIcon(self.icon, self)
         self.tray_icon.setToolTip("Cricket Scores: Initializing...")
         self.tray_icon.activated.connect(self.on_tray_activated)
-
-        # --- Create Context Menu ---
         self.menu = QMenu()
-        self.populate_menu() # Initial population
+        self.populate_menu()
         self.tray_icon.setContextMenu(self.menu)
 
-        # --- Create Flyout Widget (but don't show it) ---
-        self.flyout_content = ScoreFlyoutWidget()
-        # We need a persistent widget for Flyout.make to target, even if hidden
+        # --- Dummy Widget for Positioning ---
+        # Needs to be persistent so Flyout.make has a valid target/parent
         self._dummy_target_widget = QWidget()
 
-        # --- Placeholders for Threads ---
+        # --- Setup & Start Threads ---
         self.homepage_fetcher = HomepageFetcher()
         self.homepage_fetcher.matches_updated.connect(self.handle_matches_update)
         self.homepage_fetcher.fetch_error.connect(self.handle_fetch_error)
-
         self.detailed_fetcher = DetailedFetcher()
         self.detailed_fetcher.score_updated.connect(self.handle_detailed_score_update)
         self.detailed_fetcher.fetch_error.connect(self.handle_fetch_error)
-
         self.trigger_refresh() # Start initial fetch
         self.tray_icon.show()
         logging.info("TrayApplication initialized and tray icon shown.")
-        # TODO: Start homepage fetcher thread here later
 
     def populate_menu(self):
          """Populates the right-click context menu."""
@@ -411,16 +401,16 @@ class TrayApplication(QApplication):
         matches_data_cache = fetched_matches
         new_tooltip = format_tooltip_pyqt(matches_data_cache)
         self.tray_icon.setToolTip(new_tooltip)
-        self.populate_menu() # Update menu with new matches
+        self.populate_menu()
 
     def handle_detailed_score_update(self, score_data):
         logging.info(f"Received detailed score update: {score_data}")
+        # Only update the cached data. The flyout will be created with this data when shown.
         if self.selected_match_info:
-             # Update cached score for the selected match (for tooltip/flyout refresh)
              self.selected_match_info['score'] = score_data.get('score', self.selected_match_info.get('score'))
-             # Update flyout content directly
-             self.flyout_content.update_score(self.selected_match_info)
-             # The visible FlyoutView should reflect this change automatically
+             # Update title as well, in case it changed (e.g., match status)
+             self.selected_match_info['title'] = score_data.get('title', self.selected_match_info.get('title'))
+             logging.debug(f"Updated selected_match_info cache: {self.selected_match_info}")
         else:
              logging.warning("Received detailed score but no match is selected.")
 
@@ -429,51 +419,24 @@ class TrayApplication(QApplication):
         self.tray_icon.showMessage("Fetch Error", error_message, QSystemTrayIcon.Warning, 3000)
 
     # --- Menu/Action Handlers ---
-    def populate_menu(self):
-        # ... (same as before) ...
-        global matches_data_cache
-        self.menu.clear()
-        if not matches_data_cache:
-            action = self.menu.addAction("Fetching matches...")
-            action.setEnabled(False)
-        else:
-            for i, match in enumerate(matches_data_cache):
-                if i >= MAX_MATCHES_MENU: break
-                display_text = f"{match.get('title', 'N/A')} - {match.get('score', '?')}"
-                action = self.menu.addAction(display_text)
-                action.triggered.connect(lambda checked=False, m=match: self.select_match(m))
-            if not matches_data_cache:
-                 action = self.menu.addAction("No live matches found")
-                 action.setEnabled(False)
-        self.menu.addSeparator()
-        refresh_action = self.menu.addAction("Refresh List")
-        refresh_action.triggered.connect(self.trigger_refresh)
-        self.menu.addSeparator()
-        quit_action = self.menu.addAction("Exit")
-        quit_action.triggered.connect(self.quit_app)
-
     def select_match(self, match_info):
-        # ... (same as before, starts detailed fetcher) ...
         global selected_match_url_cache
         url = match_info.get('url')
         logging.info(f"Match selected via menu: {match_info.get('title')}")
         if url:
             selected_match_url_cache = url
-            self.selected_match_info = match_info
-            # Update flyout content immediately with potentially old score
-            self.flyout_content.update_score(self.selected_match_info)
+            self.selected_match_info = match_info # Store the whole dict
+            # Don't update a non-existent persistent flyout here
             self.detailed_fetcher.set_url(url)
             if not self.detailed_fetcher.isRunning():
                 self.detailed_fetcher.start()
-            # Show the flyout (if not already visible)
-            if self._flyout_view is None or not self._flyout_view.isVisible():
-                 self.show_flyout()
+            # Show the flyout
+            self.show_flyout() # Will create a new flyout with current data
         else:
             logging.warning(f"Selected match has no URL: {match_info.get('title')}")
             self.tray_icon.showMessage("Error", "Cannot get details for this match.", QSystemTrayIcon.Warning, 2000)
 
     def trigger_refresh(self):
-        # ... (same as before) ...
         logging.info("Refresh triggered.")
         self.tray_icon.setToolTip("Refreshing...")
         self.menu.clear()
@@ -500,31 +463,39 @@ class TrayApplication(QApplication):
             logging.debug("Flyout already visible.")
             return
         if self._flyout_view:
-            self._flyout_view.closed.disconnect()
+            # Clean up previous view reference
+            try:
+                self._flyout_view.closed.disconnect()
+            except TypeError:
+                pass # Ignore if already disconnected
             self._flyout_view = None
-        logging.debug("Showing flyout.")
+
+        logging.debug("Showing flyout by creating new widget and view.")
+
+        # --- Create NEW flyout content widget --- #
+        flyout_content = ScoreFlyoutWidget()
+
+        # --- Update its content --- #
         if self.selected_match_info:
-             self.flyout_content.update_score(self.selected_match_info)
+             flyout_content.update_score(self.selected_match_info)
         else:
-             self.flyout_content.update_score({'title': 'No match selected', 'score': '-'})
+             flyout_content.update_score({'title': 'No match selected', 'score': '-'})
 
         # --- Calculate Position --- #
         cursor_pos = QCursor.pos()
         target_widget_for_pos = self._dummy_target_widget
         target_widget_for_pos.move(cursor_pos)
 
-        # --- Corrected Flyout.make call --- #
+        # --- Create Flyout View --- #
         self._flyout_view = Flyout.make(
-            self.flyout_content,           # Content widget as first positional argument
+            flyout_content, # Pass the NEW content widget
             target=target_widget_for_pos,
-            parent=target_widget_for_pos,
+            parent=self._dummy_target_widget, # Parent to dummy to manage lifetime?
             aniType=FlyoutAnimationType.FADE_IN
         )
 
         if self._flyout_view:
             self._flyout_view.closed.connect(self._on_flyout_closed)
-            # Flyout.make should handle showing, but call show() just in case
-            # (Some widget libraries require explicit show)
             self._flyout_view.show()
             logging.info(f"Flyout shown near cursor at {cursor_pos}")
         else:
