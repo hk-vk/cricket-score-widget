@@ -423,15 +423,41 @@ class TrayApplication(QApplication):
             pass
 
     def trigger_refresh(self):
-         logging.info("Refresh triggered. Fetch logic TBD.")
-         # TODO: Start/Restart homepage fetcher thread
-         self.tray_icon.showMessage("Refresh", "Refreshing match list (not implemented)...", QSystemTrayIcon.Information, 1500)
+         logging.info("Refresh triggered.")
+         self.tray_icon.setToolTip("Refreshing...")
+         self.menu.clear()
+         action = self.menu.addAction("Refreshing...")
+         action.setEnabled(False)
+         self.menu.addAction("Exit").triggered.connect(self.quit_app)
+
+         # Restart the fetcher thread
+         if self.homepage_fetcher and self.homepage_fetcher.isRunning():
+             logging.debug("Stopping existing homepage fetcher for refresh...")
+             self.homepage_fetcher.stop()
+             if not self.homepage_fetcher.wait(1000): # Wait up to 1 sec
+                  logging.warning("Homepage fetcher thread did not stop gracefully.")
+             else:
+                  logging.debug("Homepage fetcher stopped.")
+
+         logging.debug("Creating and starting new homepage fetcher.")
+         self.homepage_fetcher = HomepageFetcher() # Create new instance
+         self.homepage_fetcher.matches_updated.connect(self.handle_matches_update)
+         self.homepage_fetcher.fetch_error.connect(self.handle_fetch_error)
+         self.homepage_fetcher.start()
 
     def quit_app(self):
         """Cleans up and quits the application."""
         logging.info("Quit triggered.")
         self.tray_icon.hide()
-        # TODO: Stop threads here later
+        # Stop threads
+        if self.homepage_fetcher and self.homepage_fetcher.isRunning():
+            logging.debug("Stopping homepage fetcher on quit...")
+            self.homepage_fetcher.stop()
+            self.homepage_fetcher.wait(500)
+        if self.detailed_fetcher and self.detailed_fetcher.isRunning():
+            logging.debug("Stopping detailed fetcher on quit...")
+            self.detailed_fetcher.stop()
+            self.detailed_fetcher.wait(500)
         logging.info("Quitting QApplication.")
         self.quit()
 
@@ -474,21 +500,6 @@ class TrayApplication(QApplication):
         else:
             logging.warning(f"Selected match has no URL: {match_info.get('title')}")
             self.tray_icon.showMessage("Error", "Cannot get details for this match.", QSystemTrayIcon.Warning, 2000)
-
-    def trigger_refresh(self):
-        logging.info("Refresh triggered.")
-        self.tray_icon.setToolTip("Refreshing...")
-        self.menu.clear()
-        action = self.menu.addAction("Refreshing...")
-        action.setEnabled(False)
-        self.menu.addAction("Exit").triggered.connect(self.quit_app)
-        if self.homepage_fetcher and self.homepage_fetcher.isRunning():
-            self.homepage_fetcher.stop()
-            self.homepage_fetcher.wait(500)
-        self.homepage_fetcher = HomepageFetcher()
-        self.homepage_fetcher.matches_updated.connect(self.handle_matches_update)
-        self.homepage_fetcher.fetch_error.connect(self.handle_fetch_error)
-        self.homepage_fetcher.start()
 
     # --- Tray Icon / Flyout Activation ---
     def toggle_flyout(self):
