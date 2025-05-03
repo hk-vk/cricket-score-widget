@@ -1,0 +1,30 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Distribution / packaging
+dist/
+build/
+*.spec
+
+# Logs
+*.log
+
+# Generated files
+CricketScoreWidget.zip
+
+# Debugging files
+*.htm
+*.html
+
+# Virtual environment
+venv/
+.venv/
+
+# Temporary files
+*~
+.#*
+
+# IDE specific
+.vscode/
+.idea/ 
