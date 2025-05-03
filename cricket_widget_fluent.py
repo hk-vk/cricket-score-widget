@@ -335,8 +335,7 @@ class ScoreFlyoutWidget(QWidget):
 
 # --- Main Application Class ---
 class TrayApplication(QApplication):
-    """Main application class managing tray icon and future UI."
-"""
+    """Main application class managing tray icon and future UI."""
     def __init__(self, args):
         super().__init__(args)
         logging.info("Initializing TrayApplication (Fluent version)...")
