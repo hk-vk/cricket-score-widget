@@ -12,8 +12,11 @@ from PIL import Image, ImageDraw, ImageQt # Need ImageQt for QPixmap conversion
 
 # PyQt5 Imports
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QSize
-from PyQt5.QtGui import QIcon, QPixmap, QImage, QCursor, QFont
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QSystemTrayIcon, QMenu, QAction, QDesktopWidget, QSizePolicy, QHBoxLayout, QPushButton
+from PyQt5.QtGui import QIcon, QPixmap, QImage, QCursor, QFont, QColor
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QLabel, QSystemTrayIcon, QMenu, QAction, QDesktopWidget, 
+    QSizePolicy, QHBoxLayout, QPushButton, QGraphicsDropShadowEffect
+)
 
 # Fluent Widgets Imports
 from qfluentwidgets import setTheme, Theme, Flyout, FlyoutAnimationType, BodyLabel, CaptionLabel, FlyoutView, FlyoutViewBase, FlyoutAnimationManager, InfoBar, InfoBarPosition # Import necessary components
@@ -290,7 +293,23 @@ class ScoreFlyoutWidget(QWidget):
         super().__init__(parent=parent)
         self.vBoxLayout = QVBoxLayout(self)
         self.setWindowFlags(Qt.WindowStaysOnTopHint)  # Always on top
-        self.setStyleSheet("background-color: #222222;")  # Solid background
+        
+        # Create a more modern semi-transparent background with gradient
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet("""
+            QWidget {
+                background-color: rgba(25, 26, 30, 0.92);
+                border-radius: 12px;
+                border: 1px solid rgba(120, 120, 180, 0.2);
+            }
+            BodyLabel {
+                color: #FFFFFF;
+            }
+            CaptionLabel {
+                color: #AAC8FF;
+                font-weight: bold;
+            }
+        """)
 
         # Title and main score
         self.titleLabel = BodyLabel("No match selected", self)
@@ -398,8 +417,10 @@ class ScoreFlyoutWidget(QWidget):
         """Create a row widget for a batter."""
         row = QWidget()
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(4, 3, 4, 3)
+        layout.setSpacing(2)
         
+        # Create labels with better styling
         nameLabel = BodyLabel(batter_name, row)
         runsLabel = BodyLabel(runs, row)
         ballsLabel = BodyLabel(balls, row)
@@ -407,11 +428,21 @@ class ScoreFlyoutWidget(QWidget):
         sixesLabel = BodyLabel(sixes, row)
         srLabel = BodyLabel(sr, row)
         
-        # Set fixed widths for stats columns
+        # Set fixed widths for stats columns and better styling
         nameLabel.setMinimumWidth(120)
-        for label in [runsLabel, ballsLabel, foursLabel, sixesLabel, srLabel]:
+        nameLabel.setStyleSheet("color: rgba(255, 255, 255, 0.95); font-family: Segoe UI, Arial;")
+        
+        # Customize stats columns - highlight runs in bolder font
+        runsLabel.setStyleSheet("color: #FFFFFF; font-weight: bold; font-family: Segoe UI, Arial;")
+        
+        # Style other stats
+        for label, color in zip(
+            [ballsLabel, foursLabel, sixesLabel, srLabel], 
+            ["rgba(220, 220, 255, 0.85)", "rgba(180, 230, 180, 0.9)", "rgba(230, 180, 180, 0.9)", "rgba(230, 230, 180, 0.9)"]
+        ):
             label.setFixedWidth(40)
             label.setAlignment(Qt.AlignCenter)
+            label.setStyleSheet(f"color: {color}; font-family: Segoe UI, Arial;")
         
         layout.addWidget(nameLabel)
         layout.addWidget(runsLabel)
@@ -426,8 +457,10 @@ class ScoreFlyoutWidget(QWidget):
         """Create a row widget for a bowler."""
         row = QWidget()
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(4, 3, 4, 3)
+        layout.setSpacing(2)
         
+        # Create labels with better styling
         nameLabel = BodyLabel(bowler_name, row)
         oversLabel = BodyLabel(overs, row)
         maidensLabel = BodyLabel(maidens, row)
@@ -435,11 +468,25 @@ class ScoreFlyoutWidget(QWidget):
         wicketsLabel = BodyLabel(wickets, row)
         ecoLabel = BodyLabel(economy, row)
         
-        # Set fixed widths for stats columns
+        # Set fixed widths for stats columns and better styling
         nameLabel.setMinimumWidth(120)
-        for label in [oversLabel, maidensLabel, runsLabel, wicketsLabel, ecoLabel]:
+        nameLabel.setStyleSheet("color: rgba(255, 255, 255, 0.95); font-family: Segoe UI, Arial;")
+        
+        # Highlight wickets in bold
+        wicketsLabel.setStyleSheet("color: #FFFFFF; font-weight: bold; font-family: Segoe UI, Arial;")
+        
+        # Style other stats with unique colors
+        labels_and_colors = [
+            (oversLabel, "rgba(200, 220, 255, 0.9)"),
+            (maidensLabel, "rgba(220, 230, 180, 0.9)"),
+            (runsLabel, "rgba(230, 180, 180, 0.9)"),
+            (ecoLabel, "rgba(220, 220, 180, 0.9)")
+        ]
+        
+        for label, color in labels_and_colors:
             label.setFixedWidth(40)
             label.setAlignment(Qt.AlignCenter)
+            label.setStyleSheet(f"color: {color}; font-family: Segoe UI, Arial;")
         
         layout.addWidget(nameLabel)
         layout.addWidget(oversLabel)
@@ -456,28 +503,92 @@ class ScoreFlyoutWidget(QWidget):
         score = match_info.get('score', '-')
         logging.debug(f"Flyout updating score: Title='{title}', Score='{score}'")
         
+        # Format title to be more readable
         self.titleLabel.setText(title)
+        # Make score more prominent
         self.scoreLabel.setText(score)
+        
+        # Make sure styling is applied
+        self.titleLabel.setStyleSheet("""
+            font-family: Segoe UI, Arial, sans-serif;
+            color: white;
+            font-size: 11pt;
+            padding: 4px;
+            background-color: rgba(40, 45, 80, 0.3);
+            border-radius: 6px;
+        """)
+        
+        self.scoreLabel.setStyleSheet("""
+            font-family: Segoe UI, Arial, sans-serif;
+            color: white;
+            font-size: 14pt;
+            font-weight: bold;
+            padding: 5px;
+            background-color: rgba(60, 70, 110, 0.35);
+            border-radius: 6px;
+        """)
         
         # Clear previous data
         self._clear_tables()
         
-        # Add header rows
+        # Style section headers
+        self.battingHeader.setStyleSheet("""
+            color: rgba(170, 200, 255, 0.9);
+            font-weight: bold;
+            font-size: 10pt;
+            padding-bottom: 2px;
+            border-bottom: 1px solid rgba(100, 140, 230, 0.3);
+        """)
+        
+        self.bowlingHeader.setStyleSheet("""
+            color: rgba(170, 200, 255, 0.9);
+            font-weight: bold;
+            font-size: 10pt;
+            padding-bottom: 2px;
+            padding-top: 8px;
+            border-bottom: 1px solid rgba(100, 140, 230, 0.3);
+        """)
+        
+        # Add header rows with styled headers
         batting_header = self._create_batter_row("Batter", "R", "B", "4s", "6s", "SR")
+        batting_header.setStyleSheet("background-color: rgba(40, 50, 80, 0.4); border-radius: 4px;")
         self.battingLayout.addWidget(batting_header)
         
         bowling_header = self._create_bowler_row("Bowler", "O", "M", "R", "W", "ECO")
+        bowling_header.setStyleSheet("background-color: rgba(40, 50, 80, 0.4); border-radius: 4px;")
         self.bowlingLayout.addWidget(bowling_header)
         
-        # Example data - in real app, parse this from match_info
-        # This is just placeholder data based on the screenshot
-        self.battingLayout.addWidget(self._create_batter_row("Devdutt Padikkal *", "0", "2", "0", "0", "0.00"))
-        self.battingLayout.addWidget(self._create_batter_row("Virat Kohli", "49", "28", "2", "5", "175.00"))
+        # Example data with alternating row styling
+        batter1 = self._create_batter_row("Devdutt Padikkal *", "0", "2", "0", "0", "0.00")
+        batter1.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
+        self.battingLayout.addWidget(batter1)
         
-        self.bowlingLayout.addWidget(self._create_bowler_row("Ravindra Jadeja *", "2.3", "0", "17", "0", "6.80"))
-        self.bowlingLayout.addWidget(self._create_bowler_row("Matheesha Pathirana", "1", "0", "3", "1", "3.00"))
+        batter2 = self._create_batter_row("Virat Kohli", "49", "28", "2", "5", "175.00")
+        batter2.setStyleSheet("background-color: rgba(40, 45, 70, 0.25); border-radius: 4px;")
+        self.battingLayout.addWidget(batter2)
         
-        # Update match information
+        bowler1 = self._create_bowler_row("Ravindra Jadeja *", "2.3", "0", "17", "0", "6.80")
+        bowler1.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
+        self.bowlingLayout.addWidget(bowler1)
+        
+        bowler2 = self._create_bowler_row("Matheesha Pathirana", "1", "0", "3", "1", "3.00")
+        bowler2.setStyleSheet("background-color: rgba(40, 45, 70, 0.25); border-radius: 4px;")
+        self.bowlingLayout.addWidget(bowler2)
+        
+        # Style info section
+        self.infoContainer.setStyleSheet("""
+            background-color: rgba(30, 40, 70, 0.2);
+            border-radius: 6px;
+            padding: 4px;
+            margin-top: 6px;
+        """)
+        
+        # Update match information with better styling
+        self.partnershipLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
+        self.lastWicketLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
+        self.lastOversLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
+        self.tossLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
+        
         self.partnershipLabel.setText("Partnership: 8(4)")
         self.lastWicketLabel.setText("Last Wkt: Jacob Bethell c Brevis b Pathirana 55(33) - 97/1 in 9.5 ov.")
         self.lastOversLabel.setText("Last 5 overs: 35 runs, 1 wkts")
@@ -511,20 +622,20 @@ class MinimizedScoreWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
-        # Remove translucent background for better visibility
-        # self.setAttribute(Qt.WA_TranslucentBackground)
+        # Enable translucent background for acrylic effect
+        self.setAttribute(Qt.WA_TranslucentBackground)
         
         # Main layout - even more compact
         self.main_layout = QHBoxLayout(self)
-        self.main_layout.setContentsMargins(2, 2, 2, 2)
+        self.main_layout.setContentsMargins(1, 1, 1, 1)
         self.main_layout.setSpacing(0)
         
         # Content container with background
         self.container = QWidget(self)
         self.container.setObjectName("miniContainer")
         self.container_layout = QHBoxLayout(self.container)
-        self.container_layout.setContentsMargins(8, 3, 4, 3)
-        self.container_layout.setSpacing(1)
+        self.container_layout.setContentsMargins(10, 5, 6, 5)
+        self.container_layout.setSpacing(2)
         
         # Only show the score
         self.score_label = BodyLabel("", self.container)
@@ -536,19 +647,22 @@ class MinimizedScoreWidget(QWidget):
         
         # Control buttons in a more subtle way
         self.buttons_widget = QWidget(self.container)
-        self.buttons_widget.setFixedWidth(22)
+        self.buttons_widget.setObjectName("buttonContainer")
+        self.buttons_widget.setFixedWidth(24)
         self.buttons_layout = QVBoxLayout(self.buttons_widget)
         self.buttons_layout.setContentsMargins(0, 0, 0, 0)
         self.buttons_layout.setSpacing(1)
         
         self.btn_expand = QPushButton("□", self.buttons_widget)
         self.btn_expand.setObjectName("miniButton")
-        self.btn_expand.setFixedSize(18, 12)
+        self.btn_expand.setFixedSize(20, 14)
+        self.btn_expand.setCursor(Qt.PointingHandCursor)
         self.btn_expand.clicked.connect(self.expandClicked.emit)
         
         self.btn_close = QPushButton("×", self.buttons_widget)
         self.btn_close.setObjectName("miniButton")
-        self.btn_close.setFixedSize(18, 12)
+        self.btn_close.setFixedSize(20, 14)
+        self.btn_close.setCursor(Qt.PointingHandCursor)
         self.btn_close.clicked.connect(self.closeClicked.emit)
         
         self.buttons_layout.addWidget(self.btn_expand)
@@ -559,30 +673,51 @@ class MinimizedScoreWidget(QWidget):
         self.container_layout.addWidget(self.buttons_widget, 0)
         self.main_layout.addWidget(self.container)
         
-        # Set up styling - more solid appearance
+        # Set up styling with acrylic/mica-like effect and gradients
         self.setStyleSheet("""
+            /* Main widget fully transparent */
             QWidget {
-                background-color: #1E1E1E;
+                background-color: transparent;
             }
+            
+            /* Container with acrylic effect - semi-transparent with blur */
             #miniContainer {
-                background-color: #1E1E1E;
-                border-radius: 5px;
-                border: 1px solid #444444;
+                background-color: qlineargradient(
+                    x1: 0, y1: 0, x2: 1, y2: 1,
+                    stop: 0 rgba(28, 30, 45, 0.90), 
+                    stop: 1 rgba(25, 28, 40, 0.85)
+                );
+                border-radius: 8px;
+                border: 1px solid rgba(100, 120, 220, 0.22);
             }
+            
+            /* Score text with glow effect */
             #miniScore {
                 color: #FFFFFF;
                 font-weight: bold;
-                background-color: #1E1E1E;
+                background-color: transparent;
+                font-family: Segoe UI, Arial, sans-serif;
+                padding: 2px;
             }
+            
+            /* Button container transparent */
+            #buttonContainer {
+                background-color: transparent;
+            }
+            
+            /* Buttons styling */
             #miniButton {
-                background: #1E1E1E;
+                background-color: rgba(30, 30, 40, 0.5);
+                border-radius: 3px;
                 border: none;
-                color: #999999;
+                color: rgba(180, 180, 220, 0.7);
                 font-weight: bold;
-                font-size: 8px;
+                font-size: 10px;
                 padding: 0px;
             }
+            
             #miniButton:hover {
+                background-color: rgba(60, 70, 120, 0.6);
                 color: #FFFFFF;
             }
         """)
@@ -853,7 +988,7 @@ class TrayApplication(QApplication):
         target_widget_for_pos = self._dummy_target_widget
         target_widget_for_pos.move(cursor_pos)
 
-        # --- Create Flyout View --- #
+        # --- Create Flyout View with enhanced animation --- #
         self._flyout_view = Flyout.make(
             flyout_content, # Pass the NEW content widget
             target=target_widget_for_pos,
@@ -861,12 +996,31 @@ class TrayApplication(QApplication):
             aniType=FlyoutAnimationType.FADE_IN
         )
         
-        # Make flyout background more solid
+        # Apply modern style with soft shadow and transparency to the flyout
         if self._flyout_view:
             try:
-                self._flyout_view.setStyleSheet("background-color: #222222;")
-            except:
-                logging.debug("Could not set solid background for flyout view")
+                # Apply mica/acrylic-like effect to the flyout view itself
+                self._flyout_view.setStyleSheet("""
+                    QWidget {
+                        background-color: rgba(25, 26, 30, 0.0); /* Fully transparent container */
+                    }
+                    FlyoutViewBase {
+                        border-radius: 12px;
+                        border: 1px solid rgba(90, 130, 200, 0.2);
+                    }
+                """)
+                
+                # Add drop shadow effect if possible
+                try:
+                    shadow = QGraphicsDropShadowEffect(self._flyout_view)
+                    shadow.setBlurRadius(20)
+                    shadow.setColor(QColor(0, 0, 0, 120))
+                    shadow.setOffset(0, 4)
+                    self._flyout_view.setGraphicsEffect(shadow)
+                except:
+                    logging.debug("Could not apply shadow effect - graphics effects may not be available")
+            except Exception as e:
+                logging.debug(f"Could not apply modern style to flyout view: {e}")
 
         if self._flyout_view:
             # Make the flyout window stay on top
