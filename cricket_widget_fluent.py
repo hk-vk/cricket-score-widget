@@ -143,7 +143,6 @@ def fetch_and_parse_cricbuzz():
     return []
 
 def fetch_detailed_score(url):
-    # ... (Full implementation from cricket_widget.py L:137-219) ...
     if not url: return None
     logging.info(f"Attempting to fetch detailed score from: {url}")
     headers = {
@@ -156,29 +155,224 @@ def fetch_detailed_score(url):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         title, score, status_text = "N/A", "N/A", ""
-        title_tag = soup.select_one('h1.cb-nav-hdr.cb-font- Mako , div.cb-match-header div.cb-col- Mako ')
+        
+        # Extract title - try multiple selectors
+        title_tag = soup.select_one('h1.cb-nav-hdr, div.cb-nav-main h1, div.cb-match-header h1, div.cb-schdl div.cb-font-18')
         if title_tag:
             title = title_tag.get_text(strip=True)[:150]
         else:
              html_title = soup.find('title')
              if html_title: title = html_title.text.split('|')[0].strip()[:150]
-        score_elements = soup.find_all("div", "cb-col cb-col-67 cb-scrs-wrp")
+        
+        # Extract main score - try multiple approaches
+        score_elements = soup.select('div.cb-scrs-wrp, div.cb-mini-scr, div.cb-scrd-hdr-rw, div.cb-col-scores, div.cb-min-bat-rw')
         if score_elements:
             score_parts = [elem.get_text(strip=True) for elem in score_elements]
             score = " | ".join(filter(None, score_parts))[:150]
         else:
-             score = "N/A"
-        status_tag = soup.select_one("div.cb-col.cb-col-100.cb-font-18.cb-toss-sts.cb-text-delay, div.cb-col.cb-col-100.cb-min-stts.cb-text-complete, div.cb-text-live, .cb-min-stts.cb-text-lunch, .cb-min-stts.cb-text-inningsbreak, .cb-text-preview")
+            # Fallback score extraction
+            score_div = soup.select_one('div.cb-scr-wll-chvrn, div.cb-hmscg-bat-txt')
+            if score_div:
+                score = score_div.get_text(strip=True)[:150]
+        
+        # Extract match status
+        status_selectors = [
+            "div.cb-text-live", 
+            "div.cb-text-complete", 
+            "div.cb-text-preview",
+            "div.cb-text-lunch",
+            "div.cb-text-stump",
+            "div.cb-text-tea",
+            "div.cb-text-inprogress",
+            "div.cb-text-delay",
+            "div.cb-toss-sts",
+            "div.cb-min-stts"
+        ]
+        status_tag = soup.select_one(", ".join(status_selectors))
         if status_tag: status_text = status_tag.get_text(strip=True)
         if status_text:
              if score == "N/A" or score == "": score = status_text[:150]
              elif status_text not in score: score = (score + f" ({status_text})")[:150]
-        if title != "N/A" or score != "N/A":
-             logging.info(f"Detailed score parsed: Title='{title}', Score='{score}'")
-             return {'title': title, 'score': score}
-        else:
-             logging.warning(f"Could not parse detailed title/score from {url}")
-             return None
+        
+        # Create result dictionary with basic info
+        result = {'title': title, 'score': score}
+        
+        # Try different approaches to extract batting stats
+        batsmen = []
+        
+        # First try the main scorecard
+        batting_tables = soup.select("div.cb-ltst-wgt-hdr")
+        for batting_table in batting_tables:
+            # Check if this table contains batsmen
+            if batting_table.select_one('.cb-scrd-itms .cb-col-25') or 'BATTING' in batting_table.get_text().upper():
+                batsman_rows = batting_table.select("div.cb-scrd-itms")
+                for row in batsman_rows:
+                    # Skip rows that aren't batsmen (extras, total, etc)
+                    if not row.select_one(".cb-col-25") or "cb-scrd-nb" in row.get("class", []):
+                        continue
+                    
+                    # Get name, status, runs, balls, 4s, 6s, SR
+                    cols = row.select("div[class*='cb-col']")
+                    if len(cols) >= 7:
+                        name_col = cols[0].get_text(strip=True)
+                        status_col = cols[1].get_text(strip=True) if len(cols) > 1 else ""
+                        runs_col = cols[2].get_text(strip=True) if len(cols) > 2 else ""
+                        balls_col = cols[3].get_text(strip=True) if len(cols) > 3 else ""
+                        fours_col = cols[4].get_text(strip=True) if len(cols) > 4 else ""
+                        sixes_col = cols[5].get_text(strip=True) if len(cols) > 5 else ""
+                        sr_col = cols[6].get_text(strip=True) if len(cols) > 6 else ""
+                        
+                        # Mark not out batsmen with asterisk
+                        if "not out" in status_col.lower():
+                            name_col += " *"
+                        
+                        batsmen.append({
+                            'name': name_col,
+                            'runs': runs_col,
+                            'balls': balls_col,
+                            'fours': fours_col,
+                            'sixes': sixes_col,
+                            'sr': sr_col
+                        })
+        
+        # If no batsmen found, try alternative selectors for current batsmen (mini scorecard)
+        if not batsmen:
+            curr_batsmen_rows = soup.select("div.cb-min-bat-rw")
+            for row in curr_batsmen_rows:
+                name_tag = row.select_one(".cb-min-itm-bat")
+                runs_tag = row.select_one(".cb-min-itm-rn")
+                if name_tag and runs_tag:
+                    name = name_tag.get_text(strip=True)
+                    runs_info = runs_tag.get_text(strip=True)
+                    
+                    # Try to parse runs_info into components
+                    runs = re.search(r'(\d+)', runs_info)
+                    balls = re.search(r'\((\d+)\)', runs_info)
+                    
+                    batsmen.append({
+                        'name': name + " *",  # Mark as current batsman
+                        'runs': runs.group(1) if runs else "",
+                        'balls': balls.group(1) if balls else "",
+                        'fours': "", # Not available in mini view
+                        'sixes': "", # Not available in mini view
+                        'sr': ""     # Not available in mini view
+                    })
+        
+        # Extract bowling stats - try multiple approaches
+        bowlers = []
+        
+        # First look for the bowling section header
+        bowling_headers = soup.select("div.cb-scrd-hdr-rw, div.cb-ltst-wgt-hdr")
+        for header in bowling_headers:
+            if 'BOWLING' in header.get_text().upper():
+                # Get parent table or next sibling table
+                bowling_section = header.parent or header.find_next("div", "cb-ltst-wgt-hdr")
+                if bowling_section:
+                    # Find all bowler rows
+                    bowler_rows = bowling_section.select("div.cb-scrd-itms")
+                    for row in bowler_rows:
+                        cols = row.select("div[class*='cb-col']")
+                        if len(cols) >= 8:
+                            name_col = cols[0].get_text(strip=True)
+                            overs_col = cols[1].get_text(strip=True) if len(cols) > 1 else ""
+                            maidens_col = cols[2].get_text(strip=True) if len(cols) > 2 else ""
+                            runs_col = cols[3].get_text(strip=True) if len(cols) > 3 else ""
+                            wickets_col = cols[4].get_text(strip=True) if len(cols) > 4 else ""
+                            economy_col = cols[5].get_text(strip=True) if len(cols) > 5 else ""
+                            
+                            # Mark current bowler with asterisk
+                            is_current = False
+                            current_bowler_tag = soup.select_one(".cb-min-itm-bow")
+                            if current_bowler_tag and current_bowler_tag.get_text(strip=True) in name_col:
+                                name_col += " *"
+                                is_current = True
+                                
+                            # Or mark based on an incomplete over
+                            if not is_current and overs_col and "." in overs_col:
+                                name_col += " *"
+                            
+                            bowlers.append({
+                                'name': name_col,
+                                'overs': overs_col,
+                                'maidens': maidens_col,
+                                'runs': runs_col,
+                                'wickets': wickets_col,
+                                'economy': economy_col
+                            })
+        
+        # If no bowlers found, try alternative selectors for current bowler (mini scorecard)
+        if not bowlers:
+            curr_bowler_row = soup.select_one("div.cb-min-bow-rw")
+            if curr_bowler_row:
+                name_tag = curr_bowler_row.select_one(".cb-min-itm-bow")
+                figures_tag = curr_bowler_row.select_one(".cb-min-itm-bwl")
+                if name_tag and figures_tag:
+                    name = name_tag.get_text(strip=True)
+                    figures = figures_tag.get_text(strip=True)
+                    
+                    # Try to parse bowling figures
+                    overs = re.search(r'([\d\.]+)[-o]', figures, re.IGNORECASE)
+                    wickets = re.search(r'(\d+)[-w]', figures, re.IGNORECASE)
+                    runs = re.search(r'(\d+)[-r]', figures, re.IGNORECASE)
+                    
+                    bowlers.append({
+                        'name': name + " *",  # Mark as current bowler
+                        'overs': overs.group(1) if overs else "",
+                        'maidens': "",  # Not available in mini view
+                        'runs': runs.group(1) if runs else "",
+                        'wickets': wickets.group(1) if wickets else "",
+                        'economy': ""    # Not available in mini view
+                    })
+        
+        # Extract match info - look for specific text patterns
+        # Partnership
+        partnership = ""
+        partnership_elements = soup.select("div:contains('Partnership:'), span:contains('Partnership:')")
+        for element in partnership_elements:
+            text = element.get_text(strip=True)
+            if "Partnership:" in text:
+                partnership = text
+                break
+        
+        # Last wicket
+        last_wicket = ""
+        wicket_elements = soup.select("div:contains('Last Wicket:'), span:contains('Last Wicket:')")
+        for element in wicket_elements:
+            text = element.get_text(strip=True)
+            if "Last Wicket:" in text:
+                last_wicket = text
+                break
+        
+        # Toss information
+        toss = ""
+        toss_elements = soup.select("div.cb-toss-sts, div:contains('Toss:'), span:contains('Toss:')")
+        for element in toss_elements:
+            text = element.get_text(strip=True)
+            if "toss" in text.lower():
+                toss = text
+                break
+        
+        # Recent overs/runs
+        recent_overs = ""
+        recent_elements = soup.select("div:contains('Last'), span:contains('Last')")
+        for element in recent_elements:
+            text = element.get_text(strip=True)
+            if "Last" in text and ("overs" in text or "runs" in text):
+                recent_overs = text
+                break
+        
+        # Add detailed stats to result
+        result['batsmen'] = batsmen
+        result['bowlers'] = bowlers
+        result['partnership'] = partnership
+        result['last_wicket'] = last_wicket
+        result['toss'] = toss
+        result['recent_overs'] = recent_overs
+        
+        logging.info(f"Detailed score parsed: Title='{title}', Score='{score}'")
+        if batsmen:
+            logging.info(f"Found {len(batsmen)} batsmen and {len(bowlers)} bowlers")
+        return result
     except requests.exceptions.RequestException as e:
         logging.error(f"Network error fetching detailed score from {url}: {e}")
     except Exception as e:
@@ -558,22 +752,53 @@ class ScoreFlyoutWidget(QWidget):
         bowling_header.setStyleSheet("background-color: rgba(40, 50, 80, 0.4); border-radius: 4px;")
         self.bowlingLayout.addWidget(bowling_header)
         
-        # Example data with alternating row styling
-        batter1 = self._create_batter_row("Devdutt Padikkal *", "0", "2", "0", "0", "0.00")
-        batter1.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
-        self.battingLayout.addWidget(batter1)
-        
-        batter2 = self._create_batter_row("Virat Kohli", "49", "28", "2", "5", "175.00")
-        batter2.setStyleSheet("background-color: rgba(40, 45, 70, 0.25); border-radius: 4px;")
-        self.battingLayout.addWidget(batter2)
-        
-        bowler1 = self._create_bowler_row("Ravindra Jadeja *", "2.3", "0", "17", "0", "6.80")
-        bowler1.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
-        self.bowlingLayout.addWidget(bowler1)
-        
-        bowler2 = self._create_bowler_row("Matheesha Pathirana", "1", "0", "3", "1", "3.00")
-        bowler2.setStyleSheet("background-color: rgba(40, 45, 70, 0.25); border-radius: 4px;")
-        self.bowlingLayout.addWidget(bowler2)
+        # Add real batsmen data if available
+        batsmen = match_info.get('batsmen', [])
+        if batsmen:
+            for i, batter in enumerate(batsmen):
+                batter_row = self._create_batter_row(
+                    batter.get('name', ''),
+                    batter.get('runs', ''),
+                    batter.get('balls', ''),
+                    batter.get('fours', ''),
+                    batter.get('sixes', ''),
+                    batter.get('sr', '')
+                )
+                # Alternate row styling
+                if i % 2 == 0:
+                    batter_row.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
+                else:
+                    batter_row.setStyleSheet("background-color: rgba(40, 45, 70, 0.25); border-radius: 4px;")
+                self.battingLayout.addWidget(batter_row)
+        else:
+            # Show placeholder if no batsmen data
+            no_data_row = self._create_batter_row("No batting data", "-", "-", "-", "-", "-")
+            no_data_row.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
+            self.battingLayout.addWidget(no_data_row)
+            
+        # Add real bowlers data if available
+        bowlers = match_info.get('bowlers', [])
+        if bowlers:
+            for i, bowler in enumerate(bowlers):
+                bowler_row = self._create_bowler_row(
+                    bowler.get('name', ''),
+                    bowler.get('overs', ''),
+                    bowler.get('maidens', ''),
+                    bowler.get('runs', ''),
+                    bowler.get('wickets', ''),
+                    bowler.get('economy', '')
+                )
+                # Alternate row styling
+                if i % 2 == 0:
+                    bowler_row.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
+                else:
+                    bowler_row.setStyleSheet("background-color: rgba(40, 45, 70, 0.25); border-radius: 4px;")
+                self.bowlingLayout.addWidget(bowler_row)
+        else:
+            # Show placeholder if no bowlers data
+            no_data_row = self._create_bowler_row("No bowling data", "-", "-", "-", "-", "-")
+            no_data_row.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
+            self.bowlingLayout.addWidget(no_data_row)
         
         # Style info section
         self.infoContainer.setStyleSheet("""
@@ -583,20 +808,20 @@ class ScoreFlyoutWidget(QWidget):
             margin-top: 6px;
         """)
         
-        # Update match information with better styling
+        # Update match information with real data
         self.partnershipLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
         self.lastWicketLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
         self.lastOversLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
         self.tossLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
         
-        self.partnershipLabel.setText("Partnership: 8(4)")
-        self.lastWicketLabel.setText("Last Wkt: Jacob Bethell c Brevis b Pathirana 55(33) - 97/1 in 9.5 ov.")
-        self.lastOversLabel.setText("Last 5 overs: 35 runs, 1 wkts")
-        self.tossLabel.setText("Toss: Chennai Super Kings (Bowling)")
+        # Set real data for match info if available
+        self.partnershipLabel.setText(match_info.get('partnership', ''))
+        self.lastWicketLabel.setText(match_info.get('last_wicket', ''))
+        self.lastOversLabel.setText(match_info.get('recent_overs', ''))
+        self.tossLabel.setText(match_info.get('toss', ''))
         
         self.adjustSize()
         
-
         mini_widget = QWidget()
         mini_widget.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
         mini_layout = QVBoxLayout(mini_widget)
@@ -915,18 +1140,24 @@ class TrayApplication(QApplication):
 
     def handle_detailed_score_update(self, score_data):
         logging.info(f"Received detailed score update: {score_data}")
-        # Only update the cached data. The flyout will be created with this data when shown.
-        if self.selected_match_info:
-             self.selected_match_info['score'] = score_data.get('score', self.selected_match_info.get('score'))
-             # Update title as well, in case it changed (e.g., match status)
-             self.selected_match_info['title'] = score_data.get('title', self.selected_match_info.get('title'))
-             logging.debug(f"Updated selected_match_info cache: {self.selected_match_info}")
-             
-             # Update minimized widget if it's visible
-             if self.is_minimized_view and self._mini_widget and self._mini_widget.isVisible():
-                 self.update_mini_widget()
+        # Update the cached data with all available fields from score_data
+        if self.selected_match_info and score_data:
+            # Update all the fields from score_data to selected_match_info
+            for key, value in score_data.items():
+                self.selected_match_info[key] = value
+                
+            logging.debug(f"Updated selected_match_info cache with detailed data")
+            
+            # Update minimized widget if it's visible
+            if self.is_minimized_view and self._mini_widget and self._mini_widget.isVisible():
+                self.update_mini_widget()
+            
+            # Update the flyout if it's visible
+            if self._flyout_view and self._flyout_view.isVisible():
+                self.hide_flyout()  # Close current flyout
+                self.show_flyout()  # Show updated flyout
         else:
-             logging.warning("Received detailed score but no match is selected.")
+            logging.warning("Received detailed score but no match is selected.")
 
     def handle_fetch_error(self, error_message):
         logging.error(f"Fetch error signal received: {error_message}")
@@ -1109,42 +1340,96 @@ class TrayApplication(QApplication):
             title = self.selected_match_info.get('title', 'No match')
             score = self.selected_match_info.get('score', '-')
             
-            # Format exactly as specified: "RCB 126/2 (12.1) CRR: 10.36"
+            # Format for minimized view: "TEAM 126/2 (12.1) CRR: 10.36"
+            # or for limited matches: "TEAM1 126 & 253 | TEAM2 42 & 75/2 (12.1)"
             simplified_score = score
             try:
-                # Extract team name
-                team_name = ""
+                # Extract status if present (like "live", "stumps", etc)
+                status = ""
+                status_pattern = r'\((Live|Stumps|Lunch|Tea|End of Day|Match abandoned|Match called off|Match delayed|Rain|Innings Break|Complete)\)'
+                status_match = re.search(status_pattern, score, re.IGNORECASE)
+                if status_match:
+                    status = status_match.group(1)
+                
+                # Try to get team names from title
+                teams = []
                 if " vs " in title:
-                    teams = title.split(" vs ")
-                    team_name = teams[0].strip()
+                    teams = [team.strip() for team in title.split(" vs ")]
+                elif " Vs. " in title:
+                    teams = [team.strip() for team in title.split(" Vs. ")]
                 
-                # Try to extract runs/wickets and overs
-                runs_pattern = r'(\d+)/(\d+)'
-                runs_match = re.search(runs_pattern, score)
+                # Get batting team abbreviation
+                batting_team = ""
+                if teams and len(teams) > 0:
+                    # Use abbreviation if possible
+                    words = teams[0].split()
+                    if len(words) > 1:
+                        batting_team = ''.join([word[0] for word in words if word[0].isupper()])
+                    else:
+                        batting_team = teams[0][:3].upper()
                 
-                overs_pattern = r'\((\d+\.\d+|\d+)\)'
+                # Extract score components with regex
+                score_parts = []
+                
+                # Look for patterns like "126/2" or "126-2"
+                runs_pattern = r'(\d+)[/-](\d+)'
+                runs_matches = re.finditer(runs_pattern, score)
+                
+                # Look for overs pattern "(12.1)"
+                overs_pattern = r'\((\d+\.\d+|\d+) overs?\)'
                 overs_match = re.search(overs_pattern, score)
+                if not overs_match:
+                    overs_pattern = r'\((\d+\.\d+|\d+)\)'
+                    overs_match = re.search(overs_pattern, score)
                 
-                # Extract current run rate
-                crr_pattern = r'CRR:\s*(\d+\.\d+)'
-                crr_match = re.search(crr_pattern, score)
+                # Look for run rate "CRR: 10.36" or "RR: 10.36"
+                rr_pattern = r'(?:CRR|RR):\s*(\d+\.\d+)'
+                rr_match = re.search(rr_pattern, score)
                 
-                # Build the simplified score format
-                if runs_match and team_name:
-                    runs = runs_match.group(0)
-                    overs = overs_match.group(0) if overs_match else ""
-                    crr = f"CRR: {crr_match.group(1)}" if crr_match else ""
+                # If all components found, build the formatted score
+                if batting_team and runs_matches:
+                    for match in runs_matches:
+                        score_parts.append(f"{match.group(0)}")
                     
-                    simplified_score = f"{team_name} {runs} {overs} {crr}".strip()
+                    # Get overs if available
+                    overs = ""
+                    if overs_match:
+                        overs = f"({overs_match.group(1)})"
+                        score_parts.append(overs)
+                    
+                    # Get run rate if available
+                    rr = ""
+                    if rr_match:
+                        rr = f"CRR: {rr_match.group(1)}"
+                        score_parts.append(rr)
+                    
+                    # Add status if available (for non-live matches)
+                    if status and status.lower() != "live":
+                        score_parts.append(status)
+                    
+                    # Build final score
+                    simplified_score = f"{batting_team} {' '.join(score_parts)}"
                 else:
-                    # Fallback format if regex matching fails
-                    simplified_score = score.split("opt to bowl")[0].strip()
+                    # Simplified fallback - keep only crucial info
+                    # Clean up the score by removing extra text
+                    score_clean = re.sub(r'(?i)\(.*?(won|lead|trail|by|batting|bowl|opt|chose).*?\)', '', score)
+                    score_clean = re.sub(r'(?i)need \d+ runs.*?$', 'batting', score_clean)
+                    simplified_score = score_clean.strip()
+                    
+                    # Add team prefix if possible
+                    if batting_team:
+                        simplified_score = f"{batting_team} {simplified_score}"
+                
+                # Limit the length for display
+                simplified_score = simplified_score[:40]
+                    
             except Exception as e:
-                # If any parsing error, use the original score
+                # If any parsing error, use the original score (but abbreviated)
                 logging.debug(f"Could not simplify score, using original: {e}")
+                simplified_score = score[:40]
                 
             self._mini_widget.update_data(title, simplified_score)
-            logging.debug("Minimized widget updated")
+            logging.debug(f"Minimized widget updated: {simplified_score}")
             
     def on_mini_expand(self):
         """Handle expand button click in minimized view."""
