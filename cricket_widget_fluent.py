@@ -10,12 +10,12 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageQt # Need ImageQt for QPixmap conversion
 
 # PyQt5 Imports
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QSize
-from PyQt5.QtGui import QIcon, QPixmap, QImage, QCursor
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QSize, QSizePolicy
+from PyQt5.QtGui import QIcon, QPixmap, QImage, QCursor, QFont
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QSystemTrayIcon, QMenu, QAction, QDesktopWidget
 
 # Fluent Widgets Imports
-from qfluentwidgets import setTheme, Theme, Flyout, FlyoutAnimationType, BodyLabel, CaptionLabel, FlyoutView, FlyoutViewBase, FlyoutAnimationManager # Import necessary components
+from qfluentwidgets import setTheme, Theme, Flyout, FlyoutAnimationType, BodyLabel, CaptionLabel, FlyoutView, FlyoutViewBase, FlyoutAnimationManager, InfoBar, InfoBarPosition # Import necessary components
 
 # --- Configuration ---
 CRICBUZZ_URL = "https://www.cricbuzz.com/"
@@ -284,25 +284,42 @@ class DetailedFetcher(QThread):
 # --- PyQt UI Classes ---
 
 class ScoreFlyoutWidget(QWidget):
-    """The content widget for the flyout."""
+    """The content widget for the flyout."
+""
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.vBoxLayout = QVBoxLayout(self)
-        self.titleLabel = CaptionLabel("No match selected", self)
+
+        # Use BodyLabel for both for better consistency and wrapping
+        self.titleLabel = BodyLabel("No match selected", self)
         self.scoreLabel = BodyLabel("-", self)
 
-        # Basic layout
-        self.vBoxLayout.setContentsMargins(10, 8, 10, 8)
+        # Font settings
+        titleFont = QFont()
+        titleFont.setPointSize(10)
+        titleFont.setBold(True)
+        self.titleLabel.setFont(titleFont)
+
+        scoreFont = QFont()
+        scoreFont.setPointSize(12) # Make score slightly larger
+        self.scoreLabel.setFont(scoreFont)
+
+        # Layout adjustments
+        self.vBoxLayout.setContentsMargins(15, 12, 15, 12) # More padding
+        self.vBoxLayout.setSpacing(8) # Space between labels
         self.vBoxLayout.addWidget(self.titleLabel)
         self.vBoxLayout.addWidget(self.scoreLabel)
-        self.vBoxLayout.addStretch(1) # Push content to top
+        # Removed addStretch to allow vertical resizing
 
         # Appearance
         self.titleLabel.setAlignment(Qt.AlignCenter)
+        self.titleLabel.setWordWrap(True) # Enable word wrap for title
         self.scoreLabel.setAlignment(Qt.AlignCenter)
+        self.scoreLabel.setWordWrap(True) # Enable word wrap for score/status
         self.setFixedWidth(FLYOUT_WIDTH)
-        self.setObjectName("ScoreFlyoutWidget") # For potential styling
-        # Use fluent widget styles automatically via setTheme
+        self.setObjectName("ScoreFlyoutWidget")
+        # Adjust height dynamically based on content
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         logging.info("ScoreFlyoutWidget initialized.")
 
     def update_score(self, match_info):
@@ -312,7 +329,9 @@ class ScoreFlyoutWidget(QWidget):
         logging.debug(f"Flyout updating score: Title='{title}', Score='{score}'")
         self.titleLabel.setText(title)
         self.scoreLabel.setText(score)
-        self.adjustSize() # Adjust height based on content
+        self.adjustSize() # Trigger resize after text change
+        # Optionally, signal the container FlyoutView to resize if needed
+        # (Depends on how Flyout.make handles content size changes)
 
 # --- Main Application Class ---
 class TrayApplication(QApplication):
