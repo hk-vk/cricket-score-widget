@@ -10,9 +10,9 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageQt # Need ImageQt for QPixmap conversion
 
 # PyQt5 Imports
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QSize, QSizePolicy
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QSize
 from PyQt5.QtGui import QIcon, QPixmap, QImage, QCursor, QFont
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QSystemTrayIcon, QMenu, QAction, QDesktopWidget
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QSystemTrayIcon, QMenu, QAction, QDesktopWidget, QSizePolicy, QHBoxLayout, QPushButton
 
 # Fluent Widgets Imports
 from qfluentwidgets import setTheme, Theme, Flyout, FlyoutAnimationType, BodyLabel, CaptionLabel, FlyoutView, FlyoutViewBase, FlyoutAnimationManager, InfoBar, InfoBarPosition # Import necessary components
@@ -284,54 +284,334 @@ class DetailedFetcher(QThread):
 # --- PyQt UI Classes ---
 
 class ScoreFlyoutWidget(QWidget):
-    """The content widget for the flyout."
-""
+    """The content widget for the flyout."""
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.vBoxLayout = QVBoxLayout(self)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)  # Always on top
 
-        # Use BodyLabel for both for better consistency and wrapping
+        # Title and main score
         self.titleLabel = BodyLabel("No match selected", self)
         self.scoreLabel = BodyLabel("-", self)
+        
+        # Detailed stats section
+        self.statsContainer = QWidget(self)
+        self.statsLayout = QVBoxLayout(self.statsContainer)
+        
+        # Batting section
+        self.battingHeader = CaptionLabel("Batter", self)
+        self.battingTable = QWidget(self)
+        self.battingLayout = QVBoxLayout(self.battingTable)
+        self.battingLayout.setSpacing(2)
+        self.battingLayout.setContentsMargins(0, 0, 0, 0)
+        
+        # Bowling section
+        self.bowlingHeader = CaptionLabel("Bowler", self)
+        self.bowlingTable = QWidget(self)
+        self.bowlingLayout = QVBoxLayout(self.bowlingTable)
+        self.bowlingLayout.setSpacing(2)
+        self.bowlingLayout.setContentsMargins(0, 0, 0, 0)
+        
+        # Match info section
+        self.infoContainer = QWidget(self)
+        self.infoLayout = QVBoxLayout(self.infoContainer)
+        self.infoLayout.setSpacing(2)
+        self.infoLayout.setContentsMargins(0, 0, 0, 0)
+        
+        self.partnershipLabel = BodyLabel("", self)
+        self.lastWicketLabel = BodyLabel("", self)
+        self.lastOversLabel = BodyLabel("", self)
+        self.tossLabel = BodyLabel("", self)
+        
+        self.infoLayout.addWidget(self.partnershipLabel)
+        self.infoLayout.addWidget(self.lastWicketLabel)
+        self.infoLayout.addWidget(self.lastOversLabel)
+        self.infoLayout.addWidget(self.tossLabel)
 
         # Font settings
         titleFont = QFont()
-        titleFont.setPointSize(10)
+        titleFont.setPointSize(11)
         titleFont.setBold(True)
         self.titleLabel.setFont(titleFont)
 
         scoreFont = QFont()
-        scoreFont.setPointSize(12) # Make score slightly larger
+        scoreFont.setPointSize(14)
+        scoreFont.setBold(True)
         self.scoreLabel.setFont(scoreFont)
+        
+        headerFont = QFont()
+        headerFont.setPointSize(10)
+        headerFont.setBold(True)
+        self.battingHeader.setFont(headerFont)
+        self.bowlingHeader.setFont(headerFont)
+
+        # Add batting header and table
+        self.statsLayout.addWidget(self.battingHeader)
+        self.statsLayout.addWidget(self.battingTable)
+        
+        # Add bowling header and table
+        self.statsLayout.addWidget(self.bowlingHeader)
+        self.statsLayout.addWidget(self.bowlingTable)
+        
+        # Add the information section
+        self.statsLayout.addWidget(self.infoContainer)
 
         # Layout adjustments
-        self.vBoxLayout.setContentsMargins(15, 12, 15, 12) # More padding
-        self.vBoxLayout.setSpacing(8) # Space between labels
+        self.vBoxLayout.setContentsMargins(15, 12, 15, 12)
+        self.vBoxLayout.setSpacing(8)
         self.vBoxLayout.addWidget(self.titleLabel)
         self.vBoxLayout.addWidget(self.scoreLabel)
-        # Removed addStretch to allow vertical resizing
+        self.vBoxLayout.addWidget(self.statsContainer)
 
         # Appearance
         self.titleLabel.setAlignment(Qt.AlignCenter)
-        self.titleLabel.setWordWrap(True) # Enable word wrap for title
+        self.titleLabel.setWordWrap(True)
         self.scoreLabel.setAlignment(Qt.AlignCenter)
-        self.scoreLabel.setWordWrap(True) # Enable word wrap for score/status
+        self.scoreLabel.setWordWrap(True)
         self.setFixedWidth(FLYOUT_WIDTH)
         self.setObjectName("ScoreFlyoutWidget")
-        # Adjust height dynamically based on content
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
-        logging.info("ScoreFlyoutWidget initialized.")
+        logging.info("Enhanced ScoreFlyoutWidget initialized.")
+        
+        # Initialize with empty data
+        self._clear_tables()
+
+    def _clear_tables(self):
+        """Clear all the table widgets to prepare for new data."""
+        # Clear batting
+        self._clear_layout(self.battingLayout)
+        # Clear bowling
+        self._clear_layout(self.bowlingLayout)
+        
+    def _clear_layout(self, layout):
+        """Utility function to clear a layout of all widgets."""
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+
+    def _create_batter_row(self, batter_name, runs, balls, fours, sixes, sr):
+        """Create a row widget for a batter."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        nameLabel = BodyLabel(batter_name, row)
+        runsLabel = BodyLabel(runs, row)
+        ballsLabel = BodyLabel(balls, row)
+        foursLabel = BodyLabel(fours, row)
+        sixesLabel = BodyLabel(sixes, row)
+        srLabel = BodyLabel(sr, row)
+        
+        # Set fixed widths for stats columns
+        nameLabel.setMinimumWidth(120)
+        for label in [runsLabel, ballsLabel, foursLabel, sixesLabel, srLabel]:
+            label.setFixedWidth(40)
+            label.setAlignment(Qt.AlignCenter)
+        
+        layout.addWidget(nameLabel)
+        layout.addWidget(runsLabel)
+        layout.addWidget(ballsLabel)
+        layout.addWidget(foursLabel)
+        layout.addWidget(sixesLabel)
+        layout.addWidget(srLabel)
+        
+        return row
+        
+    def _create_bowler_row(self, bowler_name, overs, maidens, runs, wickets, economy):
+        """Create a row widget for a bowler."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        nameLabel = BodyLabel(bowler_name, row)
+        oversLabel = BodyLabel(overs, row)
+        maidensLabel = BodyLabel(maidens, row)
+        runsLabel = BodyLabel(runs, row)
+        wicketsLabel = BodyLabel(wickets, row)
+        ecoLabel = BodyLabel(economy, row)
+        
+        # Set fixed widths for stats columns
+        nameLabel.setMinimumWidth(120)
+        for label in [oversLabel, maidensLabel, runsLabel, wicketsLabel, ecoLabel]:
+            label.setFixedWidth(40)
+            label.setAlignment(Qt.AlignCenter)
+        
+        layout.addWidget(nameLabel)
+        layout.addWidget(oversLabel)
+        layout.addWidget(maidensLabel)
+        layout.addWidget(runsLabel)
+        layout.addWidget(wicketsLabel)
+        layout.addWidget(ecoLabel)
+        
+        return row
 
     def update_score(self, match_info):
-        """Updates the labels with new score data."""
+        """Updates the widget with new score data."""
         title = match_info.get('title', 'N/A')
         score = match_info.get('score', '-')
         logging.debug(f"Flyout updating score: Title='{title}', Score='{score}'")
+        
         self.titleLabel.setText(title)
         self.scoreLabel.setText(score)
-        self.adjustSize() # Trigger resize after text change
-        # Optionally, signal the container FlyoutView to resize if needed
-        # (Depends on how Flyout.make handles content size changes)
+        
+        # Clear previous data
+        self._clear_tables()
+        
+        # Add header rows
+        batting_header = self._create_batter_row("Batter", "R", "B", "4s", "6s", "SR")
+        self.battingLayout.addWidget(batting_header)
+        
+        bowling_header = self._create_bowler_row("Bowler", "O", "M", "R", "W", "ECO")
+        self.bowlingLayout.addWidget(bowling_header)
+        
+        # Example data - in real app, parse this from match_info
+        # This is just placeholder data based on the screenshot
+        self.battingLayout.addWidget(self._create_batter_row("Devdutt Padikkal *", "0", "2", "0", "0", "0.00"))
+        self.battingLayout.addWidget(self._create_batter_row("Virat Kohli", "49", "28", "2", "5", "175.00"))
+        
+        self.bowlingLayout.addWidget(self._create_bowler_row("Ravindra Jadeja *", "2.3", "0", "17", "0", "6.80"))
+        self.bowlingLayout.addWidget(self._create_bowler_row("Matheesha Pathirana", "1", "0", "3", "1", "3.00"))
+        
+        # Update match information
+        self.partnershipLabel.setText("Partnership: 8(4)")
+        self.lastWicketLabel.setText("Last Wkt: Jacob Bethell c Brevis b Pathirana 55(33) - 97/1 in 9.5 ov.")
+        self.lastOversLabel.setText("Last 5 overs: 35 runs, 1 wkts")
+        self.tossLabel.setText("Toss: Chennai Super Kings (Bowling)")
+        
+        self.adjustSize()
+        
+
+        mini_widget = QWidget()
+        mini_widget.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        mini_layout = QVBoxLayout(mini_widget)
+        
+        score_label = BodyLabel(self.scoreLabel.text(), mini_widget)
+        score_font = QFont()
+        score_font.setPointSize(12)
+        score_font.setBold(True)
+        score_label.setFont(score_font)
+        
+        mini_layout.addWidget(score_label)
+        mini_widget.setStyleSheet("background-color: #222222; color: white; border-radius: 4px;")
+        mini_layout.setContentsMargins(8, 4, 8, 4)
+        
+        return mini_widget
+
+class MinimizedScoreWidget(QWidget):
+    """A compact always-on-top widget showing just the score."""
+    
+    minimizeClicked = pyqtSignal()
+    expandClicked = pyqtSignal()
+    closeClicked = pyqtSignal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # Main layout
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(2, 2, 2, 2)
+        
+        # Content container with background
+        self.container = QWidget(self)
+        self.container.setObjectName("miniContainer")
+        self.container_layout = QVBoxLayout(self.container)
+        self.container_layout.setContentsMargins(10, 6, 10, 6)
+        self.container_layout.setSpacing(2)
+        
+        # Header with title and controls
+        self.header = QWidget(self.container)
+        self.header_layout = QHBoxLayout(self.header)
+        self.header_layout.setContentsMargins(0, 0, 0, 0)
+        self.header_layout.setSpacing(4)
+        
+        # Match title (shortened)
+        self.title_label = BodyLabel("Match", self.header)
+        self.title_label.setObjectName("miniTitle")
+        title_font = QFont()
+        title_font.setPointSize(8)
+        self.title_label.setFont(title_font)
+        
+        # Control buttons
+        self.btn_expand = QPushButton("□", self.header)
+        self.btn_expand.setObjectName("miniButton")
+        self.btn_expand.setFixedSize(16, 16)
+        self.btn_expand.clicked.connect(self.expandClicked.emit)
+        
+        self.btn_close = QPushButton("×", self.header)
+        self.btn_close.setObjectName("miniButton")
+        self.btn_close.setFixedSize(16, 16)
+        self.btn_close.clicked.connect(self.closeClicked.emit)
+        
+        # Add to header layout
+        self.header_layout.addWidget(self.title_label, 1)
+        self.header_layout.addWidget(self.btn_expand, 0)
+        self.header_layout.addWidget(self.btn_close, 0)
+        
+        # Score label
+        self.score_label = BodyLabel("", self.container)
+        self.score_label.setObjectName("miniScore")
+        score_font = QFont()
+        score_font.setPointSize(11)
+        score_font.setBold(True)
+        self.score_label.setFont(score_font)
+        
+        # Add widgets to layouts
+        self.container_layout.addWidget(self.header)
+        self.container_layout.addWidget(self.score_label)
+        self.main_layout.addWidget(self.container)
+        
+        # Set up styling
+        self.setStyleSheet("""
+            #miniContainer {
+                background-color: #1E1E1E;
+                border-radius: 8px;
+                border: 1px solid #333333;
+            }
+            #miniTitle {
+                color: #CCCCCC;
+            }
+            #miniScore {
+                color: #FFFFFF;
+            }
+            #miniButton {
+                background: transparent;
+                border: none;
+                color: #AAAAAA;
+                font-weight: bold;
+            }
+            #miniButton:hover {
+                color: #FFFFFF;
+            }
+        """)
+        
+        # Make widget draggable
+        self.dragging = False
+        self.offset = QPoint()
+        
+    def update_data(self, title, score):
+        """Update the widget with match data."""
+        # Shorten title to at most 20 chars
+        short_title = (title[:17] + "...") if len(title) > 20 else title
+        self.title_label.setText(short_title)
+        self.score_label.setText(score)
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.dragging = True
+            self.offset = event.pos()
+            
+    def mouseMoveEvent(self, event):
+        if self.dragging and event.buttons() & Qt.LeftButton:
+            self.move(self.mapToParent(event.pos() - self.offset))
+            
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.dragging = False
 
 # --- Main Application Class ---
 class TrayApplication(QApplication):
@@ -344,6 +624,9 @@ class TrayApplication(QApplication):
         matches_data_cache = []
         self.selected_match_info = None
         self._flyout_view = None
+        self._mini_widget = None
+        self.is_minimized_view = False
+        
         self.icon = QIcon(ICON_PATH)
         if self.icon.isNull():
             logging.warning(f"Failed to load icon from {ICON_PATH}, using default.")
@@ -351,6 +634,7 @@ class TrayApplication(QApplication):
             if self.icon.isNull():
                  logging.error("Failed to create default icon. Exiting.")
                  sys.exit(1)
+                 
         self.tray_icon = QSystemTrayIcon(self.icon, self)
         self.tray_icon.setToolTip("Cricket Scores: Initializing...")
         self.tray_icon.activated.connect(self.on_tray_activated)
@@ -369,6 +653,12 @@ class TrayApplication(QApplication):
         self.detailed_fetcher = DetailedFetcher()
         self.detailed_fetcher.score_updated.connect(self.handle_detailed_score_update)
         self.detailed_fetcher.fetch_error.connect(self.handle_fetch_error)
+        
+        # Create update timer for minimized view
+        self.mini_update_timer = QTimer(self)
+        self.mini_update_timer.timeout.connect(self.update_mini_widget)
+        self.mini_update_timer.setInterval(15000)  # Update every 15 seconds
+        
         self.trigger_refresh() # Start initial fetch
         self.tray_icon.show()
         logging.info("TrayApplication initialized and tray icon shown.")
@@ -401,6 +691,11 @@ class TrayApplication(QApplication):
                  logging.debug("Menu: Added 'No live matches found' item.")
 
         self.menu.addSeparator()
+        
+        # View mode toggle
+        toggle_view_action = self.menu.addAction("Minimized View" if not self.is_minimized_view else "Detailed View")
+        toggle_view_action.triggered.connect(self.toggle_view_mode)
+        
         refresh_action = self.menu.addAction("Refresh List")
         refresh_action.triggered.connect(self.trigger_refresh)
         logging.debug("Menu: Added 'Refresh List' action.")
@@ -413,13 +708,19 @@ class TrayApplication(QApplication):
         """Handles tray icon activation (clicks)."""
         if reason == QSystemTrayIcon.ActivationReason.Trigger: # Left-click
             logging.info("Tray icon left-clicked (Trigger).")
-            self.toggle_flyout()
+            if self.is_minimized_view and self.selected_match_info:
+                if self._mini_widget and self._mini_widget.isVisible():
+                    self._mini_widget.hide()
+                else:
+                    self.show_minimized_view()
+            else:
+                self.toggle_flyout()
         elif reason == QSystemTrayIcon.ActivationReason.Context: # Right-click
             logging.info("Tray icon right-clicked (Context) - menu shown automatically.")
         elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            # Optional: Treat double-click same as single click
-            # logging.info("Tray icon double-clicked.")
-            # self.toggle_flyout()
+            # Optional: Toggle between minimized and detailed view
+            if self.selected_match_info:
+                self.toggle_view_mode()
             pass
 
     def trigger_refresh(self):
@@ -449,6 +750,16 @@ class TrayApplication(QApplication):
         """Cleans up and quits the application."""
         logging.info("Quit triggered.")
         self.tray_icon.hide()
+        
+        # Clean up the minimized widget if it exists
+        if self._mini_widget:
+            self._mini_widget.close()
+            self._mini_widget = None
+        self.mini_update_timer.stop()
+        
+        # Clean up the flyout
+        self.hide_flyout()
+        
         # Stop threads
         if self.homepage_fetcher and self.homepage_fetcher.isRunning():
             logging.debug("Stopping homepage fetcher on quit...")
@@ -478,6 +789,10 @@ class TrayApplication(QApplication):
              # Update title as well, in case it changed (e.g., match status)
              self.selected_match_info['title'] = score_data.get('title', self.selected_match_info.get('title'))
              logging.debug(f"Updated selected_match_info cache: {self.selected_match_info}")
+             
+             # Update minimized widget if it's visible
+             if self.is_minimized_view and self._mini_widget and self._mini_widget.isVisible():
+                 self.update_mini_widget()
         else:
              logging.warning("Received detailed score but no match is selected.")
 
@@ -496,7 +811,12 @@ class TrayApplication(QApplication):
             self.detailed_fetcher.set_url(url)
             if not self.detailed_fetcher.isRunning():
                 self.detailed_fetcher.start()
-            self.show_flyout()
+                
+            # Show the appropriate view based on current mode
+            if self.is_minimized_view:
+                self.show_minimized_view()
+            else:
+                self.show_flyout()
         else:
             logging.warning(f"Selected match has no URL: {match_info.get('title')}")
             self.tray_icon.showMessage("Error", "Cannot get details for this match.", QSystemTrayIcon.Warning, 2000)
@@ -545,6 +865,15 @@ class TrayApplication(QApplication):
         )
 
         if self._flyout_view:
+            # Make the flyout window stay on top
+            try:
+                if hasattr(self._flyout_view, 'windowHandle'):
+                    self._flyout_view.windowHandle().setFlags(self._flyout_view.windowHandle().flags() | Qt.WindowStaysOnTopHint)
+                elif hasattr(self._flyout_view, 'window'):
+                    self._flyout_view.window().setWindowFlags(self._flyout_view.window().windowFlags() | Qt.WindowStaysOnTopHint)
+            except Exception as e:
+                logging.warning(f"Could not set always-on-top for flyout: {e}")
+                
             self._flyout_view.closed.connect(self._on_flyout_closed)
             self._flyout_view.show()
             logging.info(f"Flyout shown near cursor at {cursor_pos}")
@@ -563,6 +892,79 @@ class TrayApplication(QApplication):
         if self._flyout_view:
             self._flyout_view.closed.disconnect() # Disconnect signal
             self._flyout_view = None
+
+    def toggle_view_mode(self):
+        """Toggle between minimized and detailed view modes."""
+        self.is_minimized_view = not self.is_minimized_view
+        logging.info(f"Toggled view mode. Minimized: {self.is_minimized_view}")
+        
+        # Update the menu
+        self.populate_menu()
+        
+        # If we have a selected match, update the view
+        if self.selected_match_info:
+            # Hide current view first
+            self.hide_flyout()
+            if self._mini_widget:
+                self._mini_widget.hide()
+                self._mini_widget.close()
+                self._mini_widget = None
+            
+            # Show the appropriate view
+            if self.is_minimized_view:
+                self.show_minimized_view()
+            else:
+                self.show_flyout()
+                
+    def show_minimized_view(self):
+        """Show the minimized always-on-top score widget."""
+        if not self.selected_match_info:
+            logging.warning("Cannot show minimized view: No match selected")
+            return
+            
+        # Clean up any existing minimized widget
+        if self._mini_widget:
+            self._mini_widget.close()
+            
+        # Create and configure the new minimized widget
+        self._mini_widget = MinimizedScoreWidget()
+        self._mini_widget.expandClicked.connect(self.on_mini_expand)
+        self._mini_widget.closeClicked.connect(self.on_mini_close)
+        
+        # Update its content with selected match info
+        title = self.selected_match_info.get('title', 'No match')
+        score = self.selected_match_info.get('score', '-')
+        self._mini_widget.update_data(title, score)
+        
+        # Position it at the cursor location
+        cursor_pos = QCursor.pos()
+        self._mini_widget.move(cursor_pos.x() - 100, cursor_pos.y() - 20) # Offset slightly
+        
+        # Show the widget and start the update timer
+        self._mini_widget.show()
+        self.mini_update_timer.start()
+        logging.info(f"Minimized score widget shown at {cursor_pos}")
+        
+    def update_mini_widget(self):
+        """Update the minimized widget with the latest score."""
+        if self._mini_widget and self.selected_match_info:
+            title = self.selected_match_info.get('title', 'No match')
+            score = self.selected_match_info.get('score', '-')
+            self._mini_widget.update_data(title, score)
+            logging.debug("Minimized widget updated")
+            
+    def on_mini_expand(self):
+        """Handle expand button click in minimized view."""
+        logging.info("Expand button clicked on minimized view")
+        self.toggle_view_mode()
+        
+    def on_mini_close(self):
+        """Handle close button click in minimized view."""
+        logging.info("Close button clicked on minimized view")
+        if self._mini_widget:
+            self._mini_widget.close()
+            self._mini_widget = None
+        self.mini_update_timer.stop()
 
 # --- Main Execution ---
 if __name__ == "__main__":
