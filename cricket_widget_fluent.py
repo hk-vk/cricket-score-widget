@@ -290,6 +290,7 @@ class ScoreFlyoutWidget(QWidget):
         super().__init__(parent=parent)
         self.vBoxLayout = QVBoxLayout(self)
         self.setWindowFlags(Qt.WindowStaysOnTopHint)  # Always on top
+        self.setStyleSheet("background-color: #222222;")  # Solid background
 
         # Title and main score
         self.titleLabel = BodyLabel("No match selected", self)
@@ -510,7 +511,8 @@ class MinimizedScoreWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # Remove translucent background for better visibility
+        # self.setAttribute(Qt.WA_TranslucentBackground)
         
         # Main layout - even more compact
         self.main_layout = QHBoxLayout(self)
@@ -557,20 +559,25 @@ class MinimizedScoreWidget(QWidget):
         self.container_layout.addWidget(self.buttons_widget, 0)
         self.main_layout.addWidget(self.container)
         
-        # Set up styling
+        # Set up styling - more solid appearance
         self.setStyleSheet("""
+            QWidget {
+                background-color: #1E1E1E;
+            }
             #miniContainer {
                 background-color: #1E1E1E;
                 border-radius: 5px;
-                border: 1px solid #333333;
+                border: 1px solid #444444;
             }
             #miniScore {
                 color: #FFFFFF;
+                font-weight: bold;
+                background-color: #1E1E1E;
             }
             #miniButton {
-                background: transparent;
+                background: #1E1E1E;
                 border: none;
-                color: #777777;
+                color: #999999;
                 font-weight: bold;
                 font-size: 8px;
                 padding: 0px;
@@ -853,6 +860,13 @@ class TrayApplication(QApplication):
             parent=self._dummy_target_widget, # Parent to dummy to manage lifetime?
             aniType=FlyoutAnimationType.FADE_IN
         )
+        
+        # Make flyout background more solid
+        if self._flyout_view:
+            try:
+                self._flyout_view.setStyleSheet("background-color: #222222;")
+            except:
+                logging.debug("Could not set solid background for flyout view")
 
         if self._flyout_view:
             # Make the flyout window stay on top
