@@ -2,5 +2,5 @@ requests
 beautifulsoup4
 Pillow
 PyQt5
-qfluentwidgets
+PyQt-Fluent-Widgets
 PyInstaller 
