@@ -1,5 +1,6 @@
 requests
 beautifulsoup4
 Pillow
-PyQt5==5.15.10
-PyQt-Fluent-Widgets==1.7.0 
+PyQt5
+qfluentwidgets
+PyInstaller 
