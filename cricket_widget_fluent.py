@@ -757,7 +757,7 @@ class ScoreFlyoutWidget(QWidget):
         team2_name = match_info.get('team2_name')
 
         # --- Update Header ---
-        self.titleLabel.setText(title)
+        # self.titleLabel.setText(title) # Removed - titleLabel no longer exists
 
         # --- Update Score Display ---
         score_display = batting_score # Default to the main score
