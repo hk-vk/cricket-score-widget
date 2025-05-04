@@ -348,105 +348,218 @@ class DetailedFetcher(QThread):
 # --- PyQt UI Classes ---
 
 class ScoreFlyoutWidget(QWidget):
-    """The content widget for the flyout."""
+    """The content widget for the flyout (now acting as a draggable widget)."""
     def __init__(self, parent=None):
         super().__init__(parent=parent)
-        self.vBoxLayout = QVBoxLayout(self)
-        # Removed setWindowFlags - already handled by Flyout.make
-
+        # --- Window Setup ---
+        # Make borderless, tool window (less taskbar presence), initially on top
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setStyleSheet("""
-            QWidget {
-                background-color: rgba(25, 26, 30, 0.92); /* Slightly darker background */
-                border-radius: 8px; /* Slightly smaller radius */
-                border: 1px solid rgba(120, 120, 180, 0.15); /* More subtle border */
-                padding: 8px; /* Add padding to main widget */
+        self._is_pinned = True # Start pinned (Always on Top)
+        self.dragging = False
+        self.offset = QPoint()
+        
+        # --- Main Layout ---
+        self.mainLayout = QVBoxLayout(self)
+        self.mainLayout.setContentsMargins(0, 0, 0, 0) # No margins for the main container
+        self.mainLayout.setSpacing(0)
+        
+        # --- Content Container (for background/border) ---
+        self.containerWidget = QWidget(self)
+        self.containerWidget.setObjectName("ContainerWidget") # For specific styling
+        self.vBoxLayout = QVBoxLayout(self.containerWidget) # Layout *inside* the container
+        self.vBoxLayout.setContentsMargins(8, 5, 8, 8) # Inner padding
+        self.vBoxLayout.setSpacing(5)
+        self.mainLayout.addWidget(self.containerWidget)
+        
+        # Apply base styling to the container
+        self.containerWidget.setStyleSheet("""
+            #ContainerWidget {
+                background-color: rgba(25, 26, 30, 0.92);
+                border-radius: 8px;
+                border: 1px solid rgba(120, 120, 180, 0.15);
             }
             BodyLabel {
-                color: #E0E0E0; /* Slightly less bright white */
-                background-color: transparent; /* Ensure labels have transparent background */
+                color: #E0E0E0;
+                background-color: transparent;
             }
             CaptionLabel {
-                color: #A0B8FF; /* Slightly adjusted caption color */
+                color: #A0B8FF;
                 font-weight: bold;
                 background-color: transparent;
-                padding-bottom: 2px; /* Spacing for headers */
+                padding-bottom: 2px;
+            }
+            QPushButton#PinButton {
+                background-color: transparent;
+                border: none;
+                color: #A0B8FF;
+                font-size: 12pt;
+                padding: 0px 2px;
+                max-width: 20px;
+                max-height: 20px;
+            }
+            QPushButton#PinButton:hover {
+                color: #FFFFFF;
             }
         """)
 
-        # Title and score section
-        self.titleLabel = BodyLabel("", self)
-        self.scoreLabel = BodyLabel("", self)
+        # --- Top Bar (for Pin Button) ---
+        self.topBarLayout = QHBoxLayout()
+        self.topBarLayout.setContentsMargins(0, 0, 0, 0)
+        self.topBarLayout.addStretch(1)
+        # Start pinned, so button shows the 'unpin' action initially
+        self.pinButton = QPushButton('➖', self.containerWidget) # UNPINNED icon initially
+        self.pinButton.setObjectName("PinButton")
+        self.pinButton.setToolTip("Toggle Always on Top (Unpinned)") # Tooltip reflects unpin action
+        self.pinButton.setCursor(Qt.PointingHandCursor)
+        self.pinButton.setFocusPolicy(Qt.NoFocus) # Prevent focus rectangle
+        self.pinButton.clicked.connect(self.toggle_pinned_state)
+        self.topBarLayout.addWidget(self.pinButton)
+        self.vBoxLayout.addLayout(self.topBarLayout) # Add top bar to container layout
 
-        # Corrected stylesheet definition with standard triple quotes
-        self.titleLabel.setStyleSheet("""
-            font-family: Segoe UI, Arial, sans-serif;
-            color: #D0D0FF;
-            font-size: 10pt; /* Reduced from 11pt */
-            padding: 4px;
-            background-color: transparent;
-            border: none;
-            text-align: center;
-        """)
-        self.titleLabel.setAlignment(Qt.AlignCenter)
-        self.titleLabel.setWordWrap(True)
-
-        # Corrected stylesheet definition with standard triple quotes
+        # --- Score and Status Labels ---
+        self.scoreLabel = BodyLabel("", self.containerWidget)
+        self.statusLabel = BodyLabel("", self.containerWidget)
+        
+        # Styling for score and status
         self.scoreLabel.setStyleSheet("""
             font-family: Segoe UI, Arial, sans-serif;
             color: white;
-            font-size: 12pt; /* Further reduced from 14pt */
+            font-size: 12pt;
             font-weight: bold;
-            padding: 4px; /* Adjusted padding */
+            padding: 4px;
             background-color: rgba(50, 55, 90, 0.4);
-            border-radius: 4px; /* Adjusted radius */
+            border-radius: 4px;
             border: none;
             text-align: center;
-            margin-bottom: 5px; /* Add margin below score */
+            margin-bottom: 0px; /* Remove margin, use status label margin */
         """)
         self.scoreLabel.setAlignment(Qt.AlignCenter)
         self.scoreLabel.setWordWrap(True)
 
+        self.statusLabel.setStyleSheet("""
+            font-family: Segoe UI, Arial, sans-serif;
+            color: #E8E8E8;
+            font-size: 10pt;
+            font-weight: normal;
+            background-color: rgba(45, 50, 80, 0.35);
+            border-radius: 4px;
+            border: none;
+            text-align: center;
+            padding: 3px;
+            margin-top: 2px;
+            margin-bottom: 8px; /* Increased bottom margin */
+        """)
+        self.statusLabel.setAlignment(Qt.AlignCenter)
+        self.statusLabel.setWordWrap(True)
 
-        # Batting section (Table only, header added in update_score)
-        # self.battingHeader = CaptionLabel("Batting", self) # REMOVED
-        self.battingTable = QWidget(self)
-        self.battingLayout = QVBoxLayout(self.battingTable)
-        self.battingLayout.setSpacing(4) # Increased spacing slightly
-        self.battingLayout.setContentsMargins(0, 2, 0, 5) # Adjusted margins
-
-
-        # Bowling section (Table only, header added in update_score)
-        # self.bowlingHeader = CaptionLabel("Bowling", self) # REMOVED
-        self.bowlingTable = QWidget(self)
-        self.bowlingLayout = QVBoxLayout(self.bowlingTable)
-        self.bowlingLayout.setSpacing(4) # Increased spacing slightly
-        self.bowlingLayout.setContentsMargins(0, 2, 0, 5) # Adjusted margins
-
-
-        # Add sections to main layout - WITHOUT the separate headers
-        self.vBoxLayout.addWidget(self.titleLabel)
+        # Add score/status to container layout
         self.vBoxLayout.addWidget(self.scoreLabel)
-        self.vBoxLayout.addSpacing(8) # Adjusted spacing
-        # self.vBoxLayout.addWidget(self.battingHeader) # REMOVED
+        self.vBoxLayout.addWidget(self.statusLabel)
+
+        # --- Batting Section ---
+        self.battingTable = QWidget(self.containerWidget)
+        self.battingLayout = QVBoxLayout(self.battingTable)
+        self.battingLayout.setSpacing(4)
+        self.battingLayout.setContentsMargins(0, 2, 0, 5)
+
+        # --- Bowling Section ---
+        self.bowlingTable = QWidget(self.containerWidget)
+        self.bowlingLayout = QVBoxLayout(self.bowlingTable)
+        self.bowlingLayout.setSpacing(4)
+        self.bowlingLayout.setContentsMargins(0, 2, 0, 5)
+
+        # Add Tables to container layout
         self.vBoxLayout.addWidget(self.battingTable)
-        self.vBoxLayout.addSpacing(8) # Adjusted spacing
-        # self.vBoxLayout.addWidget(self.bowlingHeader) # REMOVED
+        self.vBoxLayout.addSpacing(5) # Spacing between tables
         self.vBoxLayout.addWidget(self.bowlingTable)
-        self.vBoxLayout.addStretch(1) # Add stretch to push content up
-
-        # --- Font settings are now handled via Stylesheets ---
-
-        # --- Shadow effect can be applied to the FlyoutView itself for better performance ---
-        # Removed shadow effect from here
+        self.vBoxLayout.addStretch(1)
 
         # Set overall widget properties
         self.setFixedWidth(FLYOUT_WIDTH)
-        self.setObjectName("ScoreFlyoutWidget")
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding) # Allow vertical expansion
+        self.setObjectName("ScoreDetailedWidget") # Changed name
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
 
-        logging.info("ScoreFlyoutWidget initialized (UI Refined).")
-        self._clear_tables() # Clear tables on init
+        logging.info("ScoreDetailedWidget initialized.")
+        self._clear_tables()
+
+    def toggle_pinned_state(self):
+        """Toggles the always-on-top state reliably."""
+        self._is_pinned = not self._is_pinned
+
+        # Store state *before* changing flags/visibility
+        current_pos = self.pos()
+        is_visible = self.isVisible()
+
+        # Determine new flags and button state based on the *new* pinned status
+        if self._is_pinned:
+            # We just pinned it
+            new_flags = self.windowFlags() | Qt.WindowStaysOnTopHint
+            self.pinButton.setText('📌') # Pinned icon
+            self.pinButton.setToolTip("Toggle Always on Top (Pinned)")
+            logging.debug("Widget pinned (Always on Top enabled)")
+        else:
+            # We just unpinned it
+            new_flags = self.windowFlags() & ~Qt.WindowStaysOnTopHint
+            self.pinButton.setText('➖') # Unpinned icon
+            self.pinButton.setToolTip("Toggle Always on Top (Unpinned)")
+            logging.debug("Widget unpinned (Always on Top disabled)")
+
+        # Try hide -> setFlags -> move -> show sequence for robustness
+        if is_visible:
+            self.hide()
+
+        self.setWindowFlags(new_flags)
+        self.move(current_pos) # Ensure position is maintained
+
+        if is_visible:
+            self.show()
+            self.activateWindow() # Try to bring it forward
+
+    # --- Event Handlers ---
+    def focusOutEvent(self, event):
+        """Hides the widget if it loses focus *and* is not pinned."""
+        # Check if the widget is losing focus to something outside itself
+        # and most importantly, only hide if it's *not* pinned.
+        if not self._is_pinned and self.isVisible() and QApplication.focusWidget() != self:
+            # Check if the new focus widget is a child of this widget
+            # to prevent hiding when interacting with internal elements (like the pin button itself)
+            new_focus_widget = QApplication.focusWidget()
+            is_child = False
+            if new_focus_widget:
+                parent = new_focus_widget.parent()
+                while parent:
+                    if parent == self:
+                        is_child = True
+                        break
+                    parent = parent.parent()
+
+            if not is_child:
+                logging.debug("Hiding unpinned widget due to focus loss.")
+                self.hide()
+            else:
+                logging.debug("Focus moved to a child widget, not hiding.")
+
+        # Call the base class implementation if needed, though often not required for simple cases
+        # super().focusOutEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.dragging = True
+            # Global position required for correct offset calculation with frameless window
+            self.offset = event.globalPos() - self.pos()
+            event.accept() # Indicate the event was handled
+            
+    def mouseMoveEvent(self, event):
+        if self.dragging and event.buttons() & Qt.LeftButton:
+            # Move using global positions
+            self.move(event.globalPos() - self.offset)
+            event.accept()
+            
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.dragging = False
+            event.accept()
 
     def _abbreviate_name(self, full_name):
         """Abbreviates a full name like 'First Last *' to 'F. Last *'. Strips trailing numbers."""
@@ -479,14 +592,20 @@ class ScoreFlyoutWidget(QWidget):
         self._clear_layout(self.bowlingLayout)
         
     def _clear_layout(self, layout):
+        """Recursively clears all widgets and sub-layouts from a layout."""
         if layout is not None:
             while layout.count():
                 item = layout.takeAt(0)
                 widget = item.widget()
                 if widget is not None:
+                    # If it's a widget, remove it from layout and delete it
+                    widget.setParent(None)
                     widget.deleteLater()
                 else:
-                    self._clear_layout(item.layout())
+                    # If it's a layout item, recursively clear the sub-layout
+                    sub_layout = item.layout()
+                    if sub_layout is not None:
+                        self._clear_layout(sub_layout)
                     
     def _create_batter_row(self, batter_name, runs, balls, fours, sixes, sr):
         row_widget = QWidget()
@@ -591,19 +710,36 @@ class ScoreFlyoutWidget(QWidget):
     def update_score(self, match_info):
         if not match_info:
             # Optionally set default text or hide sections
-            self.titleLabel.setText("No match selected")
             self.scoreLabel.setText("-")
+            self.statusLabel.setText("") # Clear status label
+            self.statusLabel.hide()      # Hide status label
             self._clear_tables()
             # Add placeholder rows if desired
             self._add_placeholder_row(self.battingLayout, self._create_batter_row("No batting data", "-", "-", "-", "-", "-"))
             self._add_placeholder_row(self.bowlingLayout, self._create_bowler_row("No bowling data", "-", "-", "-", "-", "-"))
             return
 
-        title = match_info.get('title', 'N/A')
-        score = match_info.get('score', 'N/A')
+        title = match_info.get('title', 'N/A') # Still fetch title, might be used elsewhere (e.g., minimized view)
+        score_full = match_info.get('score', 'N/A')
+        
+        score_main_part = score_full
+        score_status_part = ""
+        
+        # Split the score string at the first opening parenthesis
+        split_index = score_full.find(' (')
+        if split_index != -1:
+            score_main_part = score_full[:split_index].strip()
+            # Include the parenthesis in the status part
+            score_status_part = score_full[split_index:].strip()
 
-        self.titleLabel.setText(title)
-        self.scoreLabel.setText(score)
+        self.scoreLabel.setText(score_main_part)
+        
+        if score_status_part:
+            self.statusLabel.setText(score_status_part)
+            self.statusLabel.show()
+        else:
+            self.statusLabel.setText("")
+            self.statusLabel.hide()
 
         # Clear existing tables before adding new data
         self._clear_tables()
@@ -842,10 +978,10 @@ class TrayApplication(QApplication):
         global matches_data_cache
         matches_data_cache = []
         self.selected_match_info = None
-        self._flyout_view = None
+        self._detailed_widget = None # Use this for the detailed view widget
         self._mini_widget = None
         self.is_minimized_view = False
-        
+
         self.icon = QIcon(ICON_PATH)
         if self.icon.isNull():
             logging.warning(f"Failed to load icon from {ICON_PATH}, using default.")
@@ -927,21 +1063,62 @@ class TrayApplication(QApplication):
         """Handles tray icon activation (clicks)."""
         if reason == QSystemTrayIcon.ActivationReason.Trigger: # Left-click
             logging.info("Tray icon left-clicked (Trigger).")
+
+            # Handle minimized view separately first
             if self.is_minimized_view and self.selected_match_info:
                 if self._mini_widget and self._mini_widget.isVisible():
                     self._mini_widget.hide()
                 else:
-                    self.show_minimized_view()
+                    # Ensure mini widget exists if match is selected
+                    if not self._mini_widget:
+                        self.show_minimized_view()
+                    elif self._mini_widget:
+                        self._mini_widget.show()
+                        self._mini_widget.activateWindow()
+                return # Handled minimized view toggle
+
+            # --- Detailed View Logic --- 
+            if not self.selected_match_info:
+                # If no match is selected, maybe show a placeholder or message
+                logging.info("Tray clicked, but no match selected.")
+                if not self._detailed_widget or not self._detailed_widget.isVisible():
+                    self.show_detailed_view() # Shows the "No match selected" message
+                else:
+                    self.hide_detailed_view()
+                return
+                
+            # Ensure detailed widget exists if a match is selected
+            if self._detailed_widget is None:
+                 self._detailed_widget = ScoreFlyoutWidget() # Create if needed
+                 # We need to update it immediately after creation
+                 self._detailed_widget.update_score(self.selected_match_info)
+
+            # Now, check pinned state for detailed view
+            if self._detailed_widget._is_pinned:
+                # If pinned, toggle visibility
+                logging.debug("Toggle visibility for PINNED detailed view")
+                self.toggle_detailed_view()
             else:
-                self.toggle_flyout()
+                # If unpinned, always show (and bring to front)
+                logging.debug("Show UNPINNED detailed view (like a popup)")
+                # Check visibility to avoid unnecessary work if already shown and active
+                if not self._detailed_widget.isVisible() or not self.isActiveWindow():
+                    self.show_detailed_view() # This handles positioning, update, show, activate
+                else:
+                     # It's already visible and likely active, maybe just ensure activation
+                     self._detailed_widget.activateWindow()
+                     
         elif reason == QSystemTrayIcon.ActivationReason.Context: # Right-click
             logging.info("Tray icon right-clicked (Context) - menu shown automatically.")
+            # Menu is shown automatically by Qt
+            
         elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            # Optional: Toggle between minimized and detailed view
+            logging.info("Tray icon double-clicked.")
+            # Optional: Toggle between minimized and detailed view if a match is selected
             if self.selected_match_info:
                 self.toggle_view_mode()
             pass
-
+            
     def trigger_refresh(self):
          logging.info("Refresh triggered.")
          self.tray_icon.setToolTip("Refreshing...")
@@ -970,14 +1147,16 @@ class TrayApplication(QApplication):
         logging.info("Quit triggered.")
         self.tray_icon.hide()
         
+        # Clean up the detailed widget if it exists
+        if self._detailed_widget:
+            self._detailed_widget.close()
+            self._detailed_widget = None
+            
         # Clean up the minimized widget if it exists
         if self._mini_widget:
             self._mini_widget.close()
             self._mini_widget = None
         self.mini_update_timer.stop()
-        
-        # Clean up the flyout
-        self.hide_flyout()
         
         # Stop threads
         if self.homepage_fetcher and self.homepage_fetcher.isRunning():
@@ -1014,10 +1193,9 @@ class TrayApplication(QApplication):
             if self.is_minimized_view and self._mini_widget and self._mini_widget.isVisible():
                 self.update_mini_widget()
             
-            # Update the flyout if it's visible
-            if self._flyout_view and self._flyout_view.isVisible():
-                self.hide_flyout()  # Close current flyout
-                self.show_flyout()  # Show updated flyout
+            # Update the detailed widget if it's visible
+            if self._detailed_widget and self._detailed_widget.isVisible():
+                self._detailed_widget.update_score(self.selected_match_info)
         else:
             logging.warning("Received detailed score but no match is selected.")
 
@@ -1041,108 +1219,60 @@ class TrayApplication(QApplication):
             if self.is_minimized_view:
                 self.show_minimized_view()
             else:
-                self.show_flyout()
+                self.show_detailed_view()
         else:
             logging.warning(f"Selected match has no URL: {match_info.get('title')}")
             self.tray_icon.showMessage("Error", "Cannot get details for this match.", QSystemTrayIcon.Warning, 2000)
 
-    # --- Tray Icon / Flyout Activation ---
-    def toggle_flyout(self):
-        if self._flyout_view and self._flyout_view.isVisible():
-            self.hide_flyout()
+    # --- Renamed Flyout Activation to Detailed View Activation ---
+    def toggle_detailed_view(self):
+        if self._detailed_widget and self._detailed_widget.isVisible():
+            self.hide_detailed_view()
         else:
-            self.show_flyout()
+            self.show_detailed_view()
 
-    def show_flyout(self):
-        if self._flyout_view and self._flyout_view.isVisible():
-            logging.debug("Flyout already visible.")
-            return
-        if self._flyout_view:
-            # Clean up previous view reference
-            try:
-                self._flyout_view.closed.disconnect()
-            except TypeError:
-                pass # Ignore if already disconnected
-            self._flyout_view = None
-
-        logging.debug("Showing flyout by creating new widget and view.")
-
-        # --- Create NEW flyout content widget --- #
-        flyout_content = ScoreFlyoutWidget()
-
-        # --- Update its content --- #
-        if self.selected_match_info:
-             flyout_content.update_score(self.selected_match_info)
+    def show_detailed_view(self):
+        """Shows the draggable detailed score widget."""
+        if not self.selected_match_info:
+            logging.warning("Cannot show detailed view: No match selected")
+            # Maybe show a message or default state?
+            if self._detailed_widget is None:
+                 self._detailed_widget = ScoreFlyoutWidget() # Use the modified class
+            self._detailed_widget.update_score({'title': 'No match selected', 'score': 'Select a match from the menu'})
         else:
-             flyout_content.update_score({'title': 'No match selected', 'score': '-'})
+             if self._detailed_widget is None:
+                 self._detailed_widget = ScoreFlyoutWidget() # Use the modified class
+             # Update content before showing
+             self._detailed_widget.update_score(self.selected_match_info)
 
-        # --- Calculate Position --- #
-        cursor_pos = QCursor.pos()
-        target_widget_for_pos = self._dummy_target_widget
-        target_widget_for_pos.move(cursor_pos)
+        # Position near cursor or tray icon
+        try:
+            tray_pos = self.tray_icon.geometry().center()
+            screen_geometry = QApplication.desktop().availableGeometry(tray_pos)
+            widget_size = self._detailed_widget.sizeHint() # Use sizeHint or fixed size
+            x = tray_pos.x() - widget_size.width() // 2
+            y = tray_pos.y() - widget_size.height() # Position above tray icon
+            
+            # Keep within screen bounds
+            x = max(screen_geometry.left(), min(x, screen_geometry.right() - widget_size.width()))
+            y = max(screen_geometry.top(), min(y, screen_geometry.bottom() - widget_size.height()))
+            
+            self._detailed_widget.move(x, y)
+        except Exception as e:
+            logging.warning(f"Could not position detailed widget near tray: {e}. Using cursor pos.")
+            cursor_pos = QCursor.pos()
+            self._detailed_widget.move(cursor_pos.x() - 150, cursor_pos.y() - 50) # Fallback position
+            
+        self._detailed_widget.show()
+        logging.info("Detailed score widget shown.")
 
-        # --- Create Flyout View with enhanced animation --- #
-        self._flyout_view = Flyout.make(
-            flyout_content, # Pass the NEW content widget
-            target=target_widget_for_pos,
-            parent=self._dummy_target_widget, # Parent to dummy to manage lifetime?
-            aniType=FlyoutAnimationType.FADE_IN
-        )
-        
-        # Apply modern style with soft shadow and transparency to the flyout
-        if self._flyout_view:
-            try:
-                # Apply mica/acrylic-like effect to the flyout view itself
-                self._flyout_view.setStyleSheet("""
-                    QWidget {
-                        background-color: rgba(25, 26, 30, 0.0); /* Fully transparent container */
-                    }
-                    FlyoutViewBase {
-                        border-radius: 12px;
-                        border: 1px solid rgba(90, 130, 200, 0.2);
-                    }
-                """)
-                
-                # Add drop shadow effect if possible
-                try:
-                    shadow = QGraphicsDropShadowEffect(self._flyout_view)
-                    shadow.setBlurRadius(20)
-                    shadow.setColor(QColor(0, 0, 0, 120))
-                    shadow.setOffset(0, 4)
-                    self._flyout_view.setGraphicsEffect(shadow)
-                except:
-                    logging.debug("Could not apply shadow effect - graphics effects may not be available")
-            except Exception as e:
-                logging.debug(f"Could not apply modern style to flyout view: {e}")
 
-        if self._flyout_view:
-            # Make the flyout window stay on top
-            try:
-                if hasattr(self._flyout_view, 'windowHandle'):
-                    self._flyout_view.windowHandle().setFlags(self._flyout_view.windowHandle().flags() | Qt.WindowStaysOnTopHint)
-                elif hasattr(self._flyout_view, 'window'):
-                    self._flyout_view.window().setWindowFlags(self._flyout_view.window().windowFlags() | Qt.WindowStaysOnTopHint)
-            except Exception as e:
-                logging.warning(f"Could not set always-on-top for flyout: {e}")
-                
-            self._flyout_view.closed.connect(self._on_flyout_closed)
-            self._flyout_view.show()
-            logging.info(f"Flyout shown near cursor at {cursor_pos}")
-        else:
-             logging.error("Flyout.make returned None.")
-
-    def hide_flyout(self):
-        if self._flyout_view and self._flyout_view.isVisible():
-            logging.debug("Hiding flyout.")
-            # FlyoutViewBase doesn't have hide(), use close()
-            self._flyout_view.close()
-            # self._flyout_view = None # Set to None in _on_flyout_closed
-
-    def _on_flyout_closed(self):
-        logging.debug("Flyout closed signal received.")
-        if self._flyout_view:
-            self._flyout_view.closed.disconnect() # Disconnect signal
-            self._flyout_view = None
+    def hide_detailed_view(self):
+        """Hides the draggable detailed score widget."""
+        if self._detailed_widget:
+            self._detailed_widget.hide()
+            logging.debug("Hiding detailed widget.")
+            # Don't set to None here, allow toggling back
 
     def toggle_view_mode(self):
         """Toggle between minimized and detailed view modes."""
@@ -1154,18 +1284,17 @@ class TrayApplication(QApplication):
         
         # If we have a selected match, update the view
         if self.selected_match_info:
-            # Hide current view first
-            self.hide_flyout()
+            # Hide current views first
+            self.hide_detailed_view()
             if self._mini_widget:
-                self._mini_widget.hide()
                 self._mini_widget.close()
                 self._mini_widget = None
-            
+
             # Show the appropriate view
             if self.is_minimized_view:
                 self.show_minimized_view()
             else:
-                self.show_flyout()
+                self.show_detailed_view()
                 
     def show_minimized_view(self):
         """Show the minimized always-on-top score widget."""
