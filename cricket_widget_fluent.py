@@ -10,6 +10,10 @@ import re
 import traceback
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageQt # Need ImageQt for QPixmap conversion
+import os
+
+# Windows Registry for autostart
+import winreg
 
 # PyQt5 Imports
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QSize
@@ -23,6 +27,7 @@ from PyQt5.QtWidgets import (
 from qfluentwidgets import setTheme, Theme, Flyout, FlyoutAnimationType, BodyLabel, CaptionLabel, FlyoutView, FlyoutViewBase, FlyoutAnimationManager, InfoBar, InfoBarPosition # Import necessary components
 
 # --- Configuration ---
+APP_NAME = "CricketWidget"  # Used for registry settings
 CRICBUZZ_URL = "https://www.cricbuzz.com/"
 UPDATE_INTERVAL_SECONDS = 120  # Update homepage matches
 DETAILED_UPDATE_INTERVAL_SECONDS = 15 # Update selected match score
@@ -42,6 +47,73 @@ logging.basicConfig(filename=LOG_FILE,
 # --- Global State (for data sharing, minimize reliance)
 matches_data_cache = [] # Cache for menu building
 selected_match_url_cache = None # Cache for detailed fetcher
+
+# --- Autostart Functions ---
+def is_autostart_enabled():
+    """Check if application is set to run at startup."""
+    try:
+        registry_key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_READ
+        )
+        try:
+            value, _ = winreg.QueryValueEx(registry_key, APP_NAME)
+            winreg.CloseKey(registry_key)
+            # Compare with current executable path
+            current_exe_path = get_executable_path()
+            return value == current_exe_path
+        except WindowsError:
+            winreg.CloseKey(registry_key)
+            return False
+    except WindowsError:
+        return False
+
+def enable_autostart():
+    """Enable application to run at startup."""
+    exe_path = get_executable_path()
+    try:
+        registry_key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_WRITE
+        )
+        winreg.SetValueEx(registry_key, APP_NAME, 0, winreg.REG_SZ, exe_path)
+        winreg.CloseKey(registry_key)
+        logging.info(f"Autostart enabled: {exe_path}")
+        return True
+    except WindowsError as e:
+        logging.error(f"Failed to enable autostart: {e}")
+        return False
+
+def disable_autostart():
+    """Disable application from running at startup."""
+    try:
+        registry_key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_WRITE
+        )
+        try:
+            winreg.DeleteValue(registry_key, APP_NAME)
+            winreg.CloseKey(registry_key)
+            logging.info("Autostart disabled")
+            return True
+        except WindowsError:
+            winreg.CloseKey(registry_key)
+            return False
+    except WindowsError as e:
+        logging.error(f"Failed to disable autostart: {e}")
+        return False
+
+def get_executable_path():
+    """Get path of current executable, handling both script and exe cases."""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable
+        return sys.executable
+    else:
+        # Running as script - mimic what the compiled exe path would be
+        return f'"{sys.executable}" "{os.path.abspath(sys.argv[0])}"'
 
 # --- Helper Functions ---
 def create_default_icon():
@@ -1013,7 +1085,8 @@ class TrayApplication(QApplication):
         self._detailed_widget = None # Use this for the detailed view widget
         self._mini_widget = None
         self.is_minimized_view = False
-
+        self.autostart_enabled = is_autostart_enabled()
+        
         self.icon = QIcon(ICON_PATH)
         if self.icon.isNull():
             logging.warning(f"Failed to load icon from {ICON_PATH}, using default.")
@@ -1082,6 +1155,12 @@ class TrayApplication(QApplication):
         # View mode toggle
         toggle_view_action = self.menu.addAction("Minimized View" if not self.is_minimized_view else "Detailed View")
         toggle_view_action.triggered.connect(self.toggle_view_mode)
+        
+        # Auto-start option
+        autostart_action = self.menu.addAction("Start with Windows")
+        autostart_action.setCheckable(True)
+        autostart_action.setChecked(self.autostart_enabled)
+        autostart_action.triggered.connect(self.toggle_autostart)
         
         refresh_action = self.menu.addAction("Refresh List")
         refresh_action.triggered.connect(self.trigger_refresh)
@@ -1466,6 +1545,21 @@ class TrayApplication(QApplication):
             self._mini_widget.close()
             self._mini_widget = None
         self.mini_update_timer.stop()
+
+    def toggle_autostart(self, checked):
+        """Toggle the auto-start setting based on menu action."""
+        if checked:
+            success = enable_autostart()
+        else:
+            success = disable_autostart()
+            
+        # Update the stored state only if the operation was successful
+        if success:
+            self.autostart_enabled = checked
+            logging.info(f"Autostart toggled to: {checked}")
+        else:
+            # Revert the checkbox state if the operation failed
+            self.populate_menu()  # Recreate menu with correct state
 
 # --- Main Execution ---
 if __name__ == "__main__":
