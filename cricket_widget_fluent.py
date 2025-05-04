@@ -32,12 +32,29 @@ CRICBUZZ_URL = "https://www.cricbuzz.com/"
 UPDATE_INTERVAL_SECONDS = 120  # Update homepage matches
 DETAILED_UPDATE_INTERVAL_SECONDS = 15 # Update selected match score
 ICON_PATH = "cricket_icon.ico"
-LOG_FILE = "cricket_widget_fluent.log" # Use a new log file
-MAX_MATCHES_TOOLTIP = 3 # Max matches in tooltip
-MAX_MATCHES_MENU = 10 # Max matches in menu
-TOOLTIP_MAX_LEN = 250 # Tooltip length limit
-FLYOUT_WIDTH = 300 # Reduced from 320
-# FLYOUT_MAX_HEIGHT = 400 # Let height be dynamic for now
+
+# --- Determine Log File Path ---
+def get_log_file_path():
+    """Gets a user-writable path for the log file in LocalAppData."""
+    try:
+        # Get base path for local app data
+        base_path = os.getenv('LOCALAPPDATA')
+        if not base_path:
+            # Fallback to user home if LOCALAPPDATA is not set
+            base_path = os.path.expanduser('~')
+        
+        # Create app-specific directory
+        log_dir = os.path.join(base_path, APP_NAME)
+        os.makedirs(log_dir, exist_ok=True) # Create directory if it doesn't exist
+        
+        log_path = os.path.join(log_dir, "cricket_widget_fluent.log")
+        return log_path
+    except Exception as e:
+        # Fallback to current directory if AppData path fails for any reason
+        print(f"Warning: Could not determine AppData path, logging to current directory. Error: {e}")
+        return "cricket_widget_fluent.log"
+
+LOG_FILE = get_log_file_path()
 
 # --- Logging Setup ---
 logging.basicConfig(filename=LOG_FILE,
