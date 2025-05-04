@@ -27,4 +27,5 @@ venv/
 
 # IDE specific
 .vscode/
-.idea/ 
+.idea/ cricket_icon.ico
+.md

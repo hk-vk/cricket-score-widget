@@ -30,7 +30,7 @@ LOG_FILE = "cricket_widget_fluent.log" # Use a new log file
 MAX_MATCHES_TOOLTIP = 3 # Max matches in tooltip
 MAX_MATCHES_MENU = 10 # Max matches in menu
 TOOLTIP_MAX_LEN = 250 # Tooltip length limit
-FLYOUT_WIDTH = 320
+FLYOUT_WIDTH = 300 # Reduced from 320
 # FLYOUT_MAX_HEIGHT = 400 # Let height be dynamic for now
 
 # --- Logging Setup ---
@@ -154,229 +154,95 @@ def fetch_detailed_score(url):
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-        title, score, status_text = "N/A", "N/A", ""
-        
-        # Extract title - try multiple selectors
-        title_tag = soup.select_one('h1.cb-nav-hdr, div.cb-nav-main h1, div.cb-match-header h1, div.cb-schdl div.cb-font-18')
+
+        result = {'title': 'N/A', 'score': 'N/A', 'batters': [], 'bowlers': []}
+
+        # Extract title
+        title_tag = soup.select_one('h1.cb-nav-hdr, div.cb-nav-main h1')
         if title_tag:
-            title = title_tag.get_text(strip=True)[:150]
-        else:
-             html_title = soup.find('title')
-             if html_title: title = html_title.text.split('|')[0].strip()[:150]
-        
-        # Extract main score - try multiple approaches
-        score_elements = soup.select('div.cb-scrs-wrp, div.cb-mini-scr, div.cb-scrd-hdr-rw, div.cb-col-scores, div.cb-min-bat-rw')
-        if score_elements:
-            score_parts = [elem.get_text(strip=True) for elem in score_elements]
-            score = " | ".join(filter(None, score_parts))[:150]
-        else:
-            # Fallback score extraction
-            score_div = soup.select_one('div.cb-scr-wll-chvrn, div.cb-hmscg-bat-txt')
-            if score_div:
-                score = score_div.get_text(strip=True)[:150]
-        
-        # Extract match status
-        status_selectors = [
-            "div.cb-text-live", 
-            "div.cb-text-complete", 
-            "div.cb-text-preview",
-            "div.cb-text-lunch",
-            "div.cb-text-stump",
-            "div.cb-text-tea",
-            "div.cb-text-inprogress",
-            "div.cb-text-delay",
-            "div.cb-toss-sts",
-            "div.cb-min-stts"
-        ]
-        status_tag = soup.select_one(", ".join(status_selectors))
-        if status_tag: status_text = status_tag.get_text(strip=True)
-        if status_text:
-             if score == "N/A" or score == "": score = status_text[:150]
-             elif status_text not in score: score = (score + f" ({status_text})")[:150]
-        
-        # Create result dictionary with basic info
-        result = {'title': title, 'score': score}
-        
-        # Try different approaches to extract batting stats
-        batsmen = []
-        
-        # First try the main scorecard
-        batting_tables = soup.select("div.cb-ltst-wgt-hdr")
-        for batting_table in batting_tables:
-            # Check if this table contains batsmen
-            if batting_table.select_one('.cb-scrd-itms .cb-col-25') or 'BATTING' in batting_table.get_text().upper():
-                batsman_rows = batting_table.select("div.cb-scrd-itms")
-                for row in batsman_rows:
-                    # Skip rows that aren't batsmen (extras, total, etc)
-                    if not row.select_one(".cb-col-25") or "cb-scrd-nb" in row.get("class", []):
-                        continue
-                    
-                    # Get name, status, runs, balls, 4s, 6s, SR
-                    cols = row.select("div[class*='cb-col']")
-                    if len(cols) >= 7:
-                        name_col = cols[0].get_text(strip=True)
-                        status_col = cols[1].get_text(strip=True) if len(cols) > 1 else ""
-                        runs_col = cols[2].get_text(strip=True) if len(cols) > 2 else ""
-                        balls_col = cols[3].get_text(strip=True) if len(cols) > 3 else ""
-                        fours_col = cols[4].get_text(strip=True) if len(cols) > 4 else ""
-                        sixes_col = cols[5].get_text(strip=True) if len(cols) > 5 else ""
-                        sr_col = cols[6].get_text(strip=True) if len(cols) > 6 else ""
-                        
-                        # Mark not out batsmen with asterisk
-                        if "not out" in status_col.lower():
-                            name_col += " *"
-                        
-                        batsmen.append({
-                            'name': name_col,
-                            'runs': runs_col,
-                            'balls': balls_col,
-                            'fours': fours_col,
-                            'sixes': sixes_col,
-                            'sr': sr_col
-                        })
-        
-        # If no batsmen found, try alternative selectors for current batsmen (mini scorecard)
-        if not batsmen:
-            curr_batsmen_rows = soup.select("div.cb-min-bat-rw")
-            for row in curr_batsmen_rows:
-                name_tag = row.select_one(".cb-min-itm-bat")
-                runs_tag = row.select_one(".cb-min-itm-rn")
-                if name_tag and runs_tag:
-                    name = name_tag.get_text(strip=True)
-                    runs_info = runs_tag.get_text(strip=True)
-                    
-                    # Try to parse runs_info into components
-                    runs = re.search(r'(\d+)', runs_info)
-                    balls = re.search(r'\((\d+)\)', runs_info)
-                    
-                    batsmen.append({
-                        'name': name + " *",  # Mark as current batsman
-                        'runs': runs.group(1) if runs else "",
-                        'balls': balls.group(1) if balls else "",
-                        'fours': "", # Not available in mini view
-                        'sixes': "", # Not available in mini view
-                        'sr': ""     # Not available in mini view
-                    })
-        
-        # Extract bowling stats - try multiple approaches
-        bowlers = []
-        
-        # First look for the bowling section header
-        bowling_headers = soup.select("div.cb-scrd-hdr-rw, div.cb-ltst-wgt-hdr")
-        for header in bowling_headers:
-            if 'BOWLING' in header.get_text().upper():
-                # Get parent table or next sibling table
-                bowling_section = header.parent or header.find_next("div", "cb-ltst-wgt-hdr")
-                if bowling_section:
-                    # Find all bowler rows
-                    bowler_rows = bowling_section.select("div.cb-scrd-itms")
-                    for row in bowler_rows:
-                        cols = row.select("div[class*='cb-col']")
-                        if len(cols) >= 8:
-                            name_col = cols[0].get_text(strip=True)
-                            overs_col = cols[1].get_text(strip=True) if len(cols) > 1 else ""
-                            maidens_col = cols[2].get_text(strip=True) if len(cols) > 2 else ""
-                            runs_col = cols[3].get_text(strip=True) if len(cols) > 3 else ""
-                            wickets_col = cols[4].get_text(strip=True) if len(cols) > 4 else ""
-                            economy_col = cols[5].get_text(strip=True) if len(cols) > 5 else ""
-                            
-                            # Mark current bowler with asterisk
-                            is_current = False
-                            current_bowler_tag = soup.select_one(".cb-min-itm-bow")
-                            if current_bowler_tag and current_bowler_tag.get_text(strip=True) in name_col:
-                                name_col += " *"
-                                is_current = True
-                                
-                            # Or mark based on an incomplete over
-                            if not is_current and overs_col and "." in overs_col:
-                                name_col += " *"
-                            
-                            bowlers.append({
-                                'name': name_col,
-                                'overs': overs_col,
-                                'maidens': maidens_col,
-                                'runs': runs_col,
-                                'wickets': wickets_col,
-                                'economy': economy_col
-                            })
-        
-        # If no bowlers found, try alternative selectors for current bowler (mini scorecard)
-        if not bowlers:
-            curr_bowler_row = soup.select_one("div.cb-min-bow-rw")
-            if curr_bowler_row:
-                name_tag = curr_bowler_row.select_one(".cb-min-itm-bow")
-                figures_tag = curr_bowler_row.select_one(".cb-min-itm-bwl")
-                if name_tag and figures_tag:
-                    name = name_tag.get_text(strip=True)
-                    figures = figures_tag.get_text(strip=True)
-                    
-                    # Try to parse bowling figures
-                    overs = re.search(r'([\d\.]+)[-o]', figures, re.IGNORECASE)
-                    wickets = re.search(r'(\d+)[-w]', figures, re.IGNORECASE)
-                    runs = re.search(r'(\d+)[-r]', figures, re.IGNORECASE)
-                    
-                    bowlers.append({
-                        'name': name + " *",  # Mark as current bowler
-                        'overs': overs.group(1) if overs else "",
-                        'maidens': "",  # Not available in mini view
-                        'runs': runs.group(1) if runs else "",
-                        'wickets': wickets.group(1) if wickets else "",
-                        'economy': ""    # Not available in mini view
-                    })
-        
-        # Extract match info - look for specific text patterns
-        # Partnership
-        partnership = ""
-        partnership_elements = soup.select("div:contains('Partnership:'), span:contains('Partnership:')")
-        for element in partnership_elements:
-            text = element.get_text(strip=True)
-            if "Partnership:" in text:
-                partnership = text
-                break
-        
-        # Last wicket
-        last_wicket = ""
-        wicket_elements = soup.select("div:contains('Last Wicket:'), span:contains('Last Wicket:')")
-        for element in wicket_elements:
-            text = element.get_text(strip=True)
-            if "Last Wicket:" in text:
-                last_wicket = text
-                break
-        
-        # Toss information
-        toss = ""
-        toss_elements = soup.select("div.cb-toss-sts, div:contains('Toss:'), span:contains('Toss:')")
-        for element in toss_elements:
-            text = element.get_text(strip=True)
-            if "toss" in text.lower():
-                toss = text
-                break
-        
-        # Recent overs/runs
-        recent_overs = ""
-        recent_elements = soup.select("div:contains('Last'), span:contains('Last')")
-        for element in recent_elements:
-            text = element.get_text(strip=True)
-            if "Last" in text and ("overs" in text or "runs" in text):
-                recent_overs = text
-                break
-        
-        # Add detailed stats to result
-        result['batsmen'] = batsmen
-        result['bowlers'] = bowlers
-        result['partnership'] = partnership
-        result['last_wicket'] = last_wicket
-        result['toss'] = toss
-        result['recent_overs'] = recent_overs
-        
-        logging.info(f"Detailed score parsed: Title='{title}', Score='{score}'")
-        if batsmen:
-            logging.info(f"Found {len(batsmen)} batsmen and {len(bowlers)} bowlers")
+            result['title'] = title_tag.get_text(strip=True)[:150]
+        else: # Fallback using <title> tag
+            html_title = soup.find('title')
+            if html_title:
+                result['title'] = html_title.text.split('|')[0].strip()[:150]
+
+
+        # Extract main score line and status
+        score_line = ""
+        score_div = soup.select_one('div.cb-min-bat-rw') # Main score line container
+        if score_div:
+            score_span = score_div.select_one('span.cb-font-20') # Actual score part
+            if score_span:
+                score_line = score_span.get_text(strip=True)
+
+        status_tag = soup.select_one('div.cb-text-inprogress, div.cb-text-complete, div.cb-text-stump, div.cb-text-lunch, div.cb-text-tea, div.cb-text-preview') # Match status
+        status_text = ""
+        if status_tag:
+            status_text = status_tag.get_text(strip=True)
+
+        result['score'] = f"{score_line} ({status_text})" if status_text else score_line
+        result['score'] = result['score'][:150] # Limit length
+
+
+        # Find the batting and bowling sections specifically
+        all_min_inf_divs = soup.select("div.cb-min-inf")
+        batting_section = None
+        bowling_section = None
+
+        for section in all_min_inf_divs:
+            header = section.select_one("div.cb-min-hdr-rw")
+            if header:
+                header_text = header.get_text().lower()
+                if "batter" in header_text:
+                    batting_section = section
+                elif "bowler" in header_text:
+                    bowling_section = section
+
+        # Extract current batters from the identified batting section
+        if batting_section:
+            batter_rows = batting_section.select('div.cb-min-itm-rw')
+            for row in batter_rows:
+                cols = row.select('div.cb-col')
+                if len(cols) >= 6: # Ensure we have all columns
+                    name_col = cols[0].select_one('a.cb-text-link')
+                    if name_col:
+                        # Check if the first column contains a link (likely a player name)
+                        batter = {
+                            'name': name_col.get_text(strip=True) + (" *" if "*" in cols[0].get_text() else ""), # Add asterisk if present
+                            'runs': cols[1].get_text(strip=True),
+                            'balls': cols[2].get_text(strip=True),
+                            'fours': cols[3].get_text(strip=True),
+                            'sixes': cols[4].get_text(strip=True),
+                            'sr': cols[5].get_text(strip=True)
+                        }
+                        result['batters'].append(batter)
+
+        # Extract current bowlers from the identified bowling section
+        if bowling_section:
+            bowler_rows = bowling_section.select('div.cb-min-itm-rw')
+            for row in bowler_rows:
+                cols = row.select('div.cb-col')
+                if len(cols) >= 6: # Ensure we have all columns
+                    name_col = cols[0].select_one('a.cb-text-link')
+                    if name_col:
+                         # Check if the first column contains a link (likely a player name)
+                        bowler = {
+                            'name': name_col.get_text(strip=True) + (" *" if "*" in cols[0].get_text() else ""), # Add asterisk if present
+                            'overs': cols[1].get_text(strip=True),
+                            'maidens': cols[2].get_text(strip=True),
+                            'runs': cols[3].get_text(strip=True),
+                            'wickets': cols[4].get_text(strip=True),
+                            'economy': cols[5].get_text(strip=True)
+                        }
+                        result['bowlers'].append(bowler)
+
+        logging.info(f"Detailed score parsed: Title='{result['title']}', Score='{result['score']}', Batters: {len(result['batters'])}, Bowlers: {len(result['bowlers'])}")
         return result
+
     except requests.exceptions.RequestException as e:
-        logging.error(f"Network error fetching detailed score from {url}: {e}")
+        logging.error(f"Network error fetching detailed score: {e}")
     except Exception as e:
-        logging.error(f"Error parsing detailed score HTML from {url}: {e}", exc_info=True)
+        logging.error(f"Error parsing detailed score HTML: {e}", exc_info=True)
     return None
 
 # --- Worker Threads ---
@@ -486,277 +352,268 @@ class ScoreFlyoutWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.vBoxLayout = QVBoxLayout(self)
-        self.setWindowFlags(Qt.WindowStaysOnTopHint)  # Always on top
-        
-        # Create a more modern semi-transparent background with gradient
+        # Removed setWindowFlags - already handled by Flyout.make
+
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setStyleSheet("""
             QWidget {
-                background-color: rgba(25, 26, 30, 0.92);
-                border-radius: 12px;
-                border: 1px solid rgba(120, 120, 180, 0.2);
+                background-color: rgba(25, 26, 30, 0.92); /* Slightly darker background */
+                border-radius: 8px; /* Slightly smaller radius */
+                border: 1px solid rgba(120, 120, 180, 0.15); /* More subtle border */
+                padding: 8px; /* Add padding to main widget */
             }
             BodyLabel {
-                color: #FFFFFF;
+                color: #E0E0E0; /* Slightly less bright white */
+                background-color: transparent; /* Ensure labels have transparent background */
             }
             CaptionLabel {
-                color: #AAC8FF;
+                color: #A0B8FF; /* Slightly adjusted caption color */
                 font-weight: bold;
+                background-color: transparent;
+                padding-bottom: 2px; /* Spacing for headers */
             }
         """)
 
-        # Title and main score
-        self.titleLabel = BodyLabel("No match selected", self)
-        self.scoreLabel = BodyLabel("-", self)
-        
-        # Detailed stats section
-        self.statsContainer = QWidget(self)
-        self.statsLayout = QVBoxLayout(self.statsContainer)
-        
-        # Batting section
-        self.battingHeader = CaptionLabel("Batter", self)
-        self.battingTable = QWidget(self)
-        self.battingLayout = QVBoxLayout(self.battingTable)
-        self.battingLayout.setSpacing(2)
-        self.battingLayout.setContentsMargins(0, 0, 0, 0)
-        
-        # Bowling section
-        self.bowlingHeader = CaptionLabel("Bowler", self)
-        self.bowlingTable = QWidget(self)
-        self.bowlingLayout = QVBoxLayout(self.bowlingTable)
-        self.bowlingLayout.setSpacing(2)
-        self.bowlingLayout.setContentsMargins(0, 0, 0, 0)
-        
-        # Match info section
-        self.infoContainer = QWidget(self)
-        self.infoLayout = QVBoxLayout(self.infoContainer)
-        self.infoLayout.setSpacing(2)
-        self.infoLayout.setContentsMargins(0, 0, 0, 0)
-        
-        self.partnershipLabel = BodyLabel("", self)
-        self.lastWicketLabel = BodyLabel("", self)
-        self.lastOversLabel = BodyLabel("", self)
-        self.tossLabel = BodyLabel("", self)
-        
-        self.infoLayout.addWidget(self.partnershipLabel)
-        self.infoLayout.addWidget(self.lastWicketLabel)
-        self.infoLayout.addWidget(self.lastOversLabel)
-        self.infoLayout.addWidget(self.tossLabel)
+        # Title and score section
+        self.titleLabel = BodyLabel("", self)
+        self.scoreLabel = BodyLabel("", self)
 
-        # Font settings
-        titleFont = QFont()
-        titleFont.setPointSize(11)
-        titleFont.setBold(True)
-        self.titleLabel.setFont(titleFont)
-
-        scoreFont = QFont()
-        scoreFont.setPointSize(14)
-        scoreFont.setBold(True)
-        self.scoreLabel.setFont(scoreFont)
-        
-        headerFont = QFont()
-        headerFont.setPointSize(10)
-        headerFont.setBold(True)
-        self.battingHeader.setFont(headerFont)
-        self.bowlingHeader.setFont(headerFont)
-
-        # Add batting header and table
-        self.statsLayout.addWidget(self.battingHeader)
-        self.statsLayout.addWidget(self.battingTable)
-        
-        # Add bowling header and table
-        self.statsLayout.addWidget(self.bowlingHeader)
-        self.statsLayout.addWidget(self.bowlingTable)
-        
-        # Add the information section
-        self.statsLayout.addWidget(self.infoContainer)
-
-        # Layout adjustments
-        self.vBoxLayout.setContentsMargins(15, 12, 15, 12)
-        self.vBoxLayout.setSpacing(8)
-        self.vBoxLayout.addWidget(self.titleLabel)
-        self.vBoxLayout.addWidget(self.scoreLabel)
-        self.vBoxLayout.addWidget(self.statsContainer)
-
-        # Appearance
+        # Corrected stylesheet definition with standard triple quotes
+        self.titleLabel.setStyleSheet("""
+            font-family: Segoe UI, Arial, sans-serif;
+            color: #D0D0FF;
+            font-size: 10pt; /* Reduced from 11pt */
+            padding: 4px;
+            background-color: transparent;
+            border: none;
+            text-align: center;
+        """)
         self.titleLabel.setAlignment(Qt.AlignCenter)
         self.titleLabel.setWordWrap(True)
+
+        # Corrected stylesheet definition with standard triple quotes
+        self.scoreLabel.setStyleSheet("""
+            font-family: Segoe UI, Arial, sans-serif;
+            color: white;
+            font-size: 12pt; /* Further reduced from 14pt */
+            font-weight: bold;
+            padding: 4px; /* Adjusted padding */
+            background-color: rgba(50, 55, 90, 0.4);
+            border-radius: 4px; /* Adjusted radius */
+            border: none;
+            text-align: center;
+            margin-bottom: 5px; /* Add margin below score */
+        """)
         self.scoreLabel.setAlignment(Qt.AlignCenter)
         self.scoreLabel.setWordWrap(True)
+
+
+        # Batting section (Table only, header added in update_score)
+        # self.battingHeader = CaptionLabel("Batting", self) # REMOVED
+        self.battingTable = QWidget(self)
+        self.battingLayout = QVBoxLayout(self.battingTable)
+        self.battingLayout.setSpacing(4) # Increased spacing slightly
+        self.battingLayout.setContentsMargins(0, 2, 0, 5) # Adjusted margins
+
+
+        # Bowling section (Table only, header added in update_score)
+        # self.bowlingHeader = CaptionLabel("Bowling", self) # REMOVED
+        self.bowlingTable = QWidget(self)
+        self.bowlingLayout = QVBoxLayout(self.bowlingTable)
+        self.bowlingLayout.setSpacing(4) # Increased spacing slightly
+        self.bowlingLayout.setContentsMargins(0, 2, 0, 5) # Adjusted margins
+
+
+        # Add sections to main layout - WITHOUT the separate headers
+        self.vBoxLayout.addWidget(self.titleLabel)
+        self.vBoxLayout.addWidget(self.scoreLabel)
+        self.vBoxLayout.addSpacing(8) # Adjusted spacing
+        # self.vBoxLayout.addWidget(self.battingHeader) # REMOVED
+        self.vBoxLayout.addWidget(self.battingTable)
+        self.vBoxLayout.addSpacing(8) # Adjusted spacing
+        # self.vBoxLayout.addWidget(self.bowlingHeader) # REMOVED
+        self.vBoxLayout.addWidget(self.bowlingTable)
+        self.vBoxLayout.addStretch(1) # Add stretch to push content up
+
+        # --- Font settings are now handled via Stylesheets ---
+
+        # --- Shadow effect can be applied to the FlyoutView itself for better performance ---
+        # Removed shadow effect from here
+
+        # Set overall widget properties
         self.setFixedWidth(FLYOUT_WIDTH)
         self.setObjectName("ScoreFlyoutWidget")
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
-        logging.info("Enhanced ScoreFlyoutWidget initialized.")
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding) # Allow vertical expansion
+
+        logging.info("ScoreFlyoutWidget initialized (UI Refined).")
+        self._clear_tables() # Clear tables on init
+
+    def _abbreviate_name(self, full_name):
+        """Abbreviates a full name like 'First Last *' to 'F. Last *'. Strips trailing numbers."""
+        if not full_name or not isinstance(full_name, str):
+            return ""
+
+        # Handle potential asterisk indicating 'not out' or current bowler
+        asterisk = " *" if "*" in full_name else ""
+        name_part = full_name.replace("*", "").strip()
         
-        # Initialize with empty data
-        self._clear_tables()
+        # Remove potential trailing numbers/stats (like runs/balls) sometimes included in name field
+        name_part = re.sub(r'\s+\d+.*$', '', name_part).strip()
+        
+        parts = name_part.split()
+        
+        if len(parts) > 1:
+            # Take first initial of the first name, and the full last name
+            initial = parts[0][0].upper() + "."
+            # Handle multi-part last names if necessary, though joining remaining parts is safer
+            last_name = " ".join(p.capitalize() for p in parts[1:]) 
+            return f"{initial} {last_name}{asterisk}"
+        elif len(parts) == 1:
+            # If only one name part, return it capitalized
+            return parts[0].capitalize() + asterisk
+        else:
+            return "" # Return empty string if name is empty after processing
 
     def _clear_tables(self):
-        """Clear all the table widgets to prepare for new data."""
-        # Clear batting
         self._clear_layout(self.battingLayout)
-        # Clear bowling
         self._clear_layout(self.bowlingLayout)
         
     def _clear_layout(self, layout):
-        """Utility function to clear a layout of all widgets."""
         if layout is not None:
             while layout.count():
                 item = layout.takeAt(0)
                 widget = item.widget()
                 if widget is not None:
                     widget.deleteLater()
-
+                else:
+                    self._clear_layout(item.layout())
+                    
     def _create_batter_row(self, batter_name, runs, balls, fours, sixes, sr):
-        """Create a row widget for a batter."""
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(4, 3, 4, 3)
-        layout.setSpacing(2)
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(4, 2, 4, 2) # Slightly more horizontal margin
+        row_layout.setSpacing(5) # Slightly more spacing
+
+        # Create labels
+        abbreviated_name = self._abbreviate_name(batter_name)
+        name_label = BodyLabel(abbreviated_name)
+        runs_label = BodyLabel(str(runs))
+        balls_label = BodyLabel(str(balls))
+        fours_label = BodyLabel(str(fours))
+        sixes_label = BodyLabel(str(sixes))
+        sr_label = BodyLabel(str(sr))
+
+        # Styling and Alignment
+        name_label.setMinimumWidth(110) # Ensure enough space for name
+        name_label.setWordWrap(False) # Prevent wrapping for short names
+        name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         
-        # Create labels with better styling
-        nameLabel = BodyLabel(batter_name, row)
-        runsLabel = BodyLabel(runs, row)
-        ballsLabel = BodyLabel(balls, row)
-        foursLabel = BodyLabel(fours, row)
-        sixesLabel = BodyLabel(sixes, row)
-        srLabel = BodyLabel(sr, row)
+        # Set fixed widths and center alignment for stat columns
+        stat_width = 35
+        runs_label.setFixedWidth(stat_width)
+        runs_label.setAlignment(Qt.AlignCenter)
+        runs_label.setStyleSheet("font-weight: bold;") 
         
-        # Set fixed widths for stats columns and better styling
-        nameLabel.setMinimumWidth(120)
-        nameLabel.setStyleSheet("color: rgba(255, 255, 255, 0.95); font-family: Segoe UI, Arial;")
+        balls_label.setFixedWidth(stat_width)
+        balls_label.setAlignment(Qt.AlignCenter)
         
-        # Customize stats columns - highlight runs in bolder font
-        runsLabel.setStyleSheet("color: #FFFFFF; font-weight: bold; font-family: Segoe UI, Arial;")
+        fours_label.setFixedWidth(stat_width)
+        fours_label.setAlignment(Qt.AlignCenter)
         
-        # Style other stats
-        for label, color in zip(
-            [ballsLabel, foursLabel, sixesLabel, srLabel], 
-            ["rgba(220, 220, 255, 0.85)", "rgba(180, 230, 180, 0.9)", "rgba(230, 180, 180, 0.9)", "rgba(230, 230, 180, 0.9)"]
-        ):
-            label.setFixedWidth(40)
-            label.setAlignment(Qt.AlignCenter)
-            label.setStyleSheet(f"color: {color}; font-family: Segoe UI, Arial;")
+        sixes_label.setFixedWidth(stat_width)
+        sixes_label.setAlignment(Qt.AlignCenter)
         
-        layout.addWidget(nameLabel)
-        layout.addWidget(runsLabel)
-        layout.addWidget(ballsLabel)
-        layout.addWidget(foursLabel)
-        layout.addWidget(sixesLabel)
-        layout.addWidget(srLabel)
-        
-        return row
-        
+        sr_label.setFixedWidth(45) # Slightly wider for SR
+        sr_label.setAlignment(Qt.AlignCenter)
+        sr_label.setStyleSheet("color: #C0C0F0;")
+
+        # Add widgets to layout (No stretch factors needed with fixed widths)
+        row_layout.addWidget(name_label)
+        row_layout.addStretch(1) # Add stretch after name
+        row_layout.addWidget(runs_label)
+        row_layout.addWidget(balls_label)
+        row_layout.addWidget(fours_label)
+        row_layout.addWidget(sixes_label)
+        row_layout.addWidget(sr_label)
+
+        return row_widget # Return the widget containing the layout
+
     def _create_bowler_row(self, bowler_name, overs, maidens, runs, wickets, economy):
-        """Create a row widget for a bowler."""
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(4, 3, 4, 3)
-        layout.setSpacing(2)
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(4, 2, 4, 2) 
+        row_layout.setSpacing(5) 
+
+        # Create labels
+        abbreviated_name = self._abbreviate_name(bowler_name)
+        name_label = BodyLabel(abbreviated_name)
+        overs_label = BodyLabel(str(overs))
+        maidens_label = BodyLabel(str(maidens))
+        runs_label = BodyLabel(str(runs))
+        wickets_label = BodyLabel(str(wickets))
+        economy_label = BodyLabel(str(economy))
+
+        # Styling and Alignment
+        name_label.setMinimumWidth(110) 
+        name_label.setWordWrap(False) 
+        name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         
-        # Create labels with better styling
-        nameLabel = BodyLabel(bowler_name, row)
-        oversLabel = BodyLabel(overs, row)
-        maidensLabel = BodyLabel(maidens, row)
-        runsLabel = BodyLabel(runs, row)
-        wicketsLabel = BodyLabel(wickets, row)
-        ecoLabel = BodyLabel(economy, row)
+        # Set fixed widths and center alignment for stat columns
+        stat_width = 35
+        overs_label.setFixedWidth(stat_width)
+        overs_label.setAlignment(Qt.AlignCenter)
         
-        # Set fixed widths for stats columns and better styling
-        nameLabel.setMinimumWidth(120)
-        nameLabel.setStyleSheet("color: rgba(255, 255, 255, 0.95); font-family: Segoe UI, Arial;")
+        maidens_label.setFixedWidth(stat_width)
+        maidens_label.setAlignment(Qt.AlignCenter)
         
-        # Highlight wickets in bold
-        wicketsLabel.setStyleSheet("color: #FFFFFF; font-weight: bold; font-family: Segoe UI, Arial;")
+        runs_label.setFixedWidth(stat_width)
+        runs_label.setAlignment(Qt.AlignCenter)
         
-        # Style other stats with unique colors
-        labels_and_colors = [
-            (oversLabel, "rgba(200, 220, 255, 0.9)"),
-            (maidensLabel, "rgba(220, 230, 180, 0.9)"),
-            (runsLabel, "rgba(230, 180, 180, 0.9)"),
-            (ecoLabel, "rgba(220, 220, 180, 0.9)")
-        ]
+        wickets_label.setFixedWidth(stat_width)
+        wickets_label.setAlignment(Qt.AlignCenter)
+        wickets_label.setStyleSheet("font-weight: bold;") 
         
-        for label, color in labels_and_colors:
-            label.setFixedWidth(40)
-            label.setAlignment(Qt.AlignCenter)
-            label.setStyleSheet(f"color: {color}; font-family: Segoe UI, Arial;")
-        
-        layout.addWidget(nameLabel)
-        layout.addWidget(oversLabel)
-        layout.addWidget(maidensLabel)
-        layout.addWidget(runsLabel)
-        layout.addWidget(wicketsLabel)
-        layout.addWidget(ecoLabel)
-        
-        return row
+        economy_label.setFixedWidth(45) # Slightly wider for ECO
+        economy_label.setAlignment(Qt.AlignCenter)
+        economy_label.setStyleSheet("color: #C0C0F0;") 
+
+        # Add widgets to layout
+        row_layout.addWidget(name_label)
+        row_layout.addStretch(1) # Add stretch after name
+        row_layout.addWidget(overs_label)
+        row_layout.addWidget(maidens_label)
+        row_layout.addWidget(runs_label)
+        row_layout.addWidget(wickets_label)
+        row_layout.addWidget(economy_label)
+
+        return row_widget # Return the widget containing the layout
 
     def update_score(self, match_info):
-        """Updates the widget with new score data."""
+        if not match_info:
+            # Optionally set default text or hide sections
+            self.titleLabel.setText("No match selected")
+            self.scoreLabel.setText("-")
+            self._clear_tables()
+            # Add placeholder rows if desired
+            self._add_placeholder_row(self.battingLayout, self._create_batter_row("No batting data", "-", "-", "-", "-", "-"))
+            self._add_placeholder_row(self.bowlingLayout, self._create_bowler_row("No bowling data", "-", "-", "-", "-", "-"))
+            return
+
         title = match_info.get('title', 'N/A')
-        score = match_info.get('score', '-')
-        logging.debug(f"Flyout updating score: Title='{title}', Score='{score}'")
-        
-        # Format title to be more readable
+        score = match_info.get('score', 'N/A')
+
         self.titleLabel.setText(title)
-        # Make score more prominent
         self.scoreLabel.setText(score)
-        
-        # Make sure styling is applied
-        self.titleLabel.setStyleSheet("""
-            font-family: Segoe UI, Arial, sans-serif;
-            color: white;
-            font-size: 11pt;
-            padding: 4px;
-            background-color: rgba(40, 45, 80, 0.3);
-            border-radius: 6px;
-        """)
-        
-        self.scoreLabel.setStyleSheet("""
-            font-family: Segoe UI, Arial, sans-serif;
-            color: white;
-            font-size: 14pt;
-            font-weight: bold;
-            padding: 5px;
-            background-color: rgba(60, 70, 110, 0.35);
-            border-radius: 6px;
-        """)
-        
-        # Clear previous data
+
+        # Clear existing tables before adding new data
         self._clear_tables()
-        
-        # Style section headers
-        self.battingHeader.setStyleSheet("""
-            color: rgba(170, 200, 255, 0.9);
-            font-weight: bold;
-            font-size: 10pt;
-            padding-bottom: 2px;
-            border-bottom: 1px solid rgba(100, 140, 230, 0.3);
-        """)
-        
-        self.bowlingHeader.setStyleSheet("""
-            color: rgba(170, 200, 255, 0.9);
-            font-weight: bold;
-            font-size: 10pt;
-            padding-bottom: 2px;
-            padding-top: 8px;
-            border-bottom: 1px solid rgba(100, 140, 230, 0.3);
-        """)
-        
-        # Add header rows with styled headers
-        batting_header = self._create_batter_row("Batter", "R", "B", "4s", "6s", "SR")
-        batting_header.setStyleSheet("background-color: rgba(40, 50, 80, 0.4); border-radius: 4px;")
-        self.battingLayout.addWidget(batting_header)
-        
-        bowling_header = self._create_bowler_row("Bowler", "O", "M", "R", "W", "ECO")
-        bowling_header.setStyleSheet("background-color: rgba(40, 50, 80, 0.4); border-radius: 4px;")
-        self.bowlingLayout.addWidget(bowling_header)
-        
-        # Add real batsmen data if available
-        batsmen = match_info.get('batsmen', [])
+
+        # Add Batting Data
+        self._add_section_header(self.battingLayout, "Batter", "R", "B", "4s", "6s", "SR")
+        batsmen = match_info.get('batters', [])
         if batsmen:
             for i, batter in enumerate(batsmen):
-                batter_row = self._create_batter_row(
+                row_widget = self._create_batter_row(
                     batter.get('name', ''),
                     batter.get('runs', ''),
                     batter.get('balls', ''),
@@ -764,23 +621,20 @@ class ScoreFlyoutWidget(QWidget):
                     batter.get('sixes', ''),
                     batter.get('sr', '')
                 )
-                # Alternate row styling
+                # Alternate row background (subtle)
                 if i % 2 == 0:
-                    batter_row.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
-                else:
-                    batter_row.setStyleSheet("background-color: rgba(40, 45, 70, 0.25); border-radius: 4px;")
-                self.battingLayout.addWidget(batter_row)
+                     row_widget.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border-radius: 3px;")
+                self.battingLayout.addWidget(row_widget)
         else:
-            # Show placeholder if no batsmen data
-            no_data_row = self._create_batter_row("No batting data", "-", "-", "-", "-", "-")
-            no_data_row.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
-            self.battingLayout.addWidget(no_data_row)
-            
-        # Add real bowlers data if available
+            self._add_placeholder_row(self.battingLayout, self._create_batter_row("No batting data", "-", "-", "-", "-", "-"))
+
+
+        # Add Bowling Data
+        self._add_section_header(self.bowlingLayout, "Bowler", "O", "M", "R", "W", "ECO")
         bowlers = match_info.get('bowlers', [])
         if bowlers:
             for i, bowler in enumerate(bowlers):
-                bowler_row = self._create_bowler_row(
+                row_widget = self._create_bowler_row(
                     bowler.get('name', ''),
                     bowler.get('overs', ''),
                     bowler.get('maidens', ''),
@@ -788,55 +642,63 @@ class ScoreFlyoutWidget(QWidget):
                     bowler.get('wickets', ''),
                     bowler.get('economy', '')
                 )
-                # Alternate row styling
+                # Alternate row background (subtle)
                 if i % 2 == 0:
-                    bowler_row.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
-                else:
-                    bowler_row.setStyleSheet("background-color: rgba(40, 45, 70, 0.25); border-radius: 4px;")
-                self.bowlingLayout.addWidget(bowler_row)
+                    row_widget.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border-radius: 3px;")
+                self.bowlingLayout.addWidget(row_widget)
         else:
-            # Show placeholder if no bowlers data
-            no_data_row = self._create_bowler_row("No bowling data", "-", "-", "-", "-", "-")
-            no_data_row.setStyleSheet("background-color: rgba(30, 35, 60, 0.2); border-radius: 4px;")
-            self.bowlingLayout.addWidget(no_data_row)
-        
-        # Style info section
-        self.infoContainer.setStyleSheet("""
-            background-color: rgba(30, 40, 70, 0.2);
-            border-radius: 6px;
-            padding: 4px;
-            margin-top: 6px;
-        """)
-        
-        # Update match information with real data
-        self.partnershipLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
-        self.lastWicketLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
-        self.lastOversLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
-        self.tossLabel.setStyleSheet("color: rgba(200, 210, 255, 0.9); font-size: 9pt;")
-        
-        # Set real data for match info if available
-        self.partnershipLabel.setText(match_info.get('partnership', ''))
-        self.lastWicketLabel.setText(match_info.get('last_wicket', ''))
-        self.lastOversLabel.setText(match_info.get('recent_overs', ''))
-        self.tossLabel.setText(match_info.get('toss', ''))
-        
+             self._add_placeholder_row(self.bowlingLayout, self._create_bowler_row("No bowling data", "-", "-", "-", "-", "-"))
+
+
+        # Adjust size after updates - Important for dynamic content
         self.adjustSize()
         
-        mini_widget = QWidget()
-        mini_widget.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        mini_layout = QVBoxLayout(mini_widget)
+    def _add_section_header(self, layout, *headers):
+        """Adds a styled header row to a given layout."""
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(4, 2, 4, 2) # Match data row margins
+        header_layout.setSpacing(5) # Match data row spacing
+
+        # Headers corresponding to columns: Name, R, B, 4s, 6s, SR or Name, O, M, R, W, ECO
+        col_headers = headers 
+        stat_width = 35 # Must match data rows
+        last_col_width = 45 # Must match data rows
+
+        # Name Header
+        name_label = CaptionLabel(col_headers[0])
+        name_label.setMinimumWidth(110) # Match data rows
+        name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header_layout.addWidget(name_label)
+        header_layout.addStretch(1) # Match data rows
+
+        # Stat Headers (R/B/4s/6s or O/M/R/W)
+        for header_text in col_headers[1:-1]:
+            label = CaptionLabel(header_text)
+            label.setFixedWidth(stat_width)
+            label.setAlignment(Qt.AlignCenter)
+            header_layout.addWidget(label)
+
+        # Last Header (SR or ECO)
+        last_label = CaptionLabel(col_headers[-1])
+        last_label.setFixedWidth(last_col_width)
+        last_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(last_label)
         
-        score_label = BodyLabel(self.scoreLabel.text(), mini_widget)
-        score_font = QFont()
-        score_font.setPointSize(12)
-        score_font.setBold(True)
-        score_label.setFont(score_font)
+        header_widget.setStyleSheet("""background-color: rgba(80, 90, 130, 0.2);
+                                      border-bottom: 1px solid rgba(120, 120, 180, 0.1);
+                                      border-radius: 3px;
+                                      margin-bottom: 2px;""")
+        layout.addWidget(header_widget)
         
-        mini_layout.addWidget(score_label)
-        mini_widget.setStyleSheet("background-color: #222222; color: white; border-radius: 4px;")
-        mini_layout.setContentsMargins(8, 4, 8, 4)
-        
-        return mini_widget
+    def _add_placeholder_row(self, layout, row_widget):
+         """Adds a placeholder row with specific styling."""
+         # Corrected stylesheet definition with standard triple quotes
+         row_widget.setStyleSheet("""background-color: rgba(255, 255, 255, 0.02);
+                                    border-radius: 3px;
+                                    font-style: italic;
+                                    color: #AAAAAA;""")
+         layout.addWidget(row_widget)
 
 class MinimizedScoreWidget(QWidget):
     """An ultra-compact always-on-top widget showing just the essential score."""
