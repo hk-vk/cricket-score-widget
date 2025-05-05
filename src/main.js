@@ -207,9 +207,65 @@ async function fetchAndParseCricbuzz() {
           if (scoreDiv.length) {
             score = scoreDiv.text().trim();
           } else {
-            const statusTag = $(linkTag).find('div[class*="cb-text-live"], div[class*="cb-text-complete"], span[class*="cb-text-preview"]');
-            if (statusTag.length) {
-              score = statusTag.text().trim();
+            // Try different status indicators
+            const statusSelectors = [
+              'div[class*="cb-text-live"]',
+              'div[class*="cb-text-complete"]', 
+              'span[class*="cb-text-preview"]',
+              'div.cb-text-rain',
+              'div.cb-text-stump',
+              'div.cb-text-lunch',
+              'div.cb-text-tea',
+              'div.cb-text-innings-break'
+            ];
+            
+            let statusFound = false;
+            for (const selector of statusSelectors) {
+              const statusTag = $(linkTag).find(selector);
+              if (statusTag.length) {
+                score = statusTag.text().trim();
+                statusFound = true;
+                break;
+              }
+            }
+            
+            // Check for completed match result
+            if (!statusFound) {
+              const resultTag = $(linkTag).closest('div').find('div.cb-text-complete');
+              if (resultTag.length && resultTag.text().includes('won')) {
+                const resultText = resultTag.text().trim();
+                // Extract the winning team and margin
+                const wonMatch = resultText.match(/(.+?)\s+won\s+by\s+(.+)/i);
+                if (wonMatch) {
+                  const winningTeam = shortenTeamNames(wonMatch[1].trim());
+                  const margin = wonMatch[2].trim();
+                  score = `${winningTeam} won by ${margin}`;
+                } else {
+                  score = resultText; // Use full status text if pattern doesn't match
+                }
+              }
+            }
+          }
+
+          // If score is still N/A, try to extract from match title
+          if (score === 'N/A' || !score) {
+            // Check title for match stage information
+            if (originalTitle.includes('Preview')) {
+              score = 'Match Preview';
+            } else if (originalTitle.includes('Report')) {
+              score = 'Match Report';
+            } else {
+              // Look for other meaningful info like date or time
+              const dateElement = $(linkTag).closest('div').find('div.cb-font-12');
+              if (dateElement.length) {
+                score = dateElement.text().trim();
+              } else {
+                // Just extract teams as fallback
+                const teams = shortenTeamNames(originalTitle).split(' vs ');
+                if (teams.length === 2) {
+                  score = `${teams[0]} v ${teams[1]}`;
+                }
+              }
             }
           }
 
@@ -428,10 +484,45 @@ async function fetchDetailedScore(url) {
 
     } else {
         // Fallback if no clear status found - might be pre-match
-        result.status = 'Status unavailable';
-        const scoreTag = $('div.cb-min-bat-rw span.cb-font-20.text-bold'); // Try to get score anyway
-         if (scoreTag.length) {
-             result.score = scoreTag.text().trim();
+        // Try to extract meaningful status information
+        const matchStatusSelectors = [
+            'div.cb-text-preview',         // Preview status
+            'div.cb-text-inprogress',      // In progress status
+            'div.cb-text-rain',            // Rain delay
+            'div.cb-text-lunch',           // Lunch break
+            'div.cb-text-stump',           // Stumps
+            'div.cb-text-tea',             // Tea break
+            'div.cb-text-innings-break',   // Innings break
+            'div[class*="cb-text-"]',      // Any status with cb-text class
+            'span.cb-text-gray'            // Alternate status location
+        ];
+        
+        let foundStatus = false;
+        
+        // Try each status selector
+        for (const selector of matchStatusSelectors) {
+            const statusEl = $(selector);
+            if (statusEl.length) {
+                result.status = statusEl.text().trim();
+                foundStatus = true;
+                break;
+            }
+        }
+        
+        // Look for match date/time if no status found
+        if (!foundStatus) {
+            const dateTimeEl = $('div.cb-font-12');
+            if (dateTimeEl.length) {
+                result.status = dateTimeEl.text().trim();
+            } else {
+                result.status = 'Match scheduled'; // Default fallback
+            }
+        }
+        
+        // Try to get score anyway
+        const scoreTag = $('div.cb-min-bat-rw span.cb-font-20.text-bold');
+        if (scoreTag.length) {
+            result.score = scoreTag.text().trim();
         }
     }
 
@@ -480,39 +571,13 @@ ipcMain.on('select-match', (_, url) => {
   console.log(`Match selected/deselected: ${url}`);
   currentMatchUrl = url;
 
-  let targetHeight;
-  if (url) {
-    targetHeight = WINDOW_HEIGHT_DETAIL;
-  } else {
+  if (!url) {
     selectedMatchLiveScore = null;
-    updateTrayTooltip(null); 
-    targetHeight = WINDOW_HEIGHT;
+    updateTrayTooltip(null);
   }
 
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    try {
-      const currentBounds = mainWindow.getBounds();
-      const currentWidth = currentBounds.width; 
-      const currentX = currentBounds.x; // <-- Get current X position
-      
-      const primaryDisplay = screen.getPrimaryDisplay();
-      const { /* width: screenWidth, */ height: screenHeight } = primaryDisplay.workAreaSize;
-      
-      // Use current X, calculate new Y based on target height
-      const xPos = currentX; // <-- Use the current X
-      const yPos = screenHeight - targetHeight - MARGIN_Y; 
-      
-      console.log(`Resizing window. Target Height: ${targetHeight}, Using Current X: ${xPos}, New Y: ${yPos}`);
-      
-      // Set Size first
-      mainWindow.setSize(currentWidth, targetHeight, false); 
-      // THEN set Position (using current X and new Y)
-      mainWindow.setPosition(xPos, yPos, false); 
-
-    } catch (e) {
-      console.error("Error resizing/repositioning window on match select:", e);
-    }
-  }
+  // No longer resizing the window when selecting a match
+  // This keeps the window at its current size
 });
 
 // --- ADDED: Always on Top Handler ---
@@ -529,9 +594,10 @@ ipcMain.on('set-always-on-top', (_, isPinned) => {
 function createWindow() {
   console.log('Creating main window...');
 
-  // Define window dimensions
+  // Use a single consistent window size that works for both views
+  // This height is sized to fit both match list and match detail views
   const windowWidth = WINDOW_WIDTH;
-  const windowHeight = WINDOW_HEIGHT;
+  const windowHeight = 400; // Use a taller window to fit both match list and details
 
   mainWindow = new BrowserWindow({
     width: windowWidth,
@@ -641,29 +707,8 @@ function toggleWindow() {
       mainWindow.hide();
     } else {
       console.log('Showing window');
-      // Determine correct height based on current state
-      const targetHeight = currentMatchUrl ? WINDOW_HEIGHT_DETAIL : WINDOW_HEIGHT;
       
-      // Recalculate position just before showing, using target height
-      try {
-        const primaryDisplay = screen.getPrimaryDisplay();
-        const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-        const currentWidth = mainWindow.getSize()[0]; // Get current width
-        const xPos = screenWidth - currentWidth;
-        const yPos = screenHeight - targetHeight - MARGIN_Y; // Use target height for Y pos
-        console.log(`Screen workArea (toggle): ${screenWidth}x${screenHeight}, Calculated Pos: ${xPos},${yPos}, Target Height: ${targetHeight}`);
-        // Set bounds to ensure correct height and position
-        mainWindow.setBounds({ 
-          x: xPos, 
-          y: yPos, 
-          width: currentWidth, 
-          height: targetHeight 
-        }, false);
-      } catch (e) {
-          console.error("Error recalculating position/size:", e);
-          // Fallback: just set height if positioning fails
-          mainWindow.setSize(mainWindow.getSize()[0], targetHeight, false);
-      }
+      // Show window at its current size and position
       mainWindow.show();
       mainWindow.focus();
     }
