@@ -207,11 +207,7 @@ async function fetchAndParseCricbuzz() {
           if (scoreDiv.length) {
             score = scoreDiv.text().trim();
           } else {
-            // Try different status indicators but limit to THIS match container only
-            // First, get the closest container that should only contain this match
-            const matchContainer = $(linkTag).closest('li, .cb-mtch-blk, .cb-mtch-itm, .cb-srs-mtchs-tm');
-            
-            // Look for status indicators only within this specific match container
+            // Try different status indicators
             const statusSelectors = [
               'div[class*="cb-text-live"]',
               'div[class*="cb-text-complete"]', 
@@ -223,78 +219,58 @@ async function fetchAndParseCricbuzz() {
               'div.cb-text-innings-break'
             ];
             
+            // Define match container for this specific match
+            const matchContainer = $(linkTag).closest('li, .cb-mtch-blk, .cb-mtch-itm, .cb-srs-mtchs-tm');
+            
             let statusFound = false;
             for (const selector of statusSelectors) {
-              // Only search within this match's container
-              const statusTag = matchContainer.find(selector).first();
-              if (statusTag.length && !statusTag.closest('a').length) { // Avoid status inside other links
+              const statusTag = matchContainer && matchContainer.length ? 
+                matchContainer.find(selector) : $(linkTag).find(selector);
+              
+              if (statusTag && statusTag.length) {
                 score = statusTag.text().trim();
                 statusFound = true;
                 break;
               }
             }
             
-            // Check for completed match result - only for this specific match
+            // Check for completed match result
             if (!statusFound) {
-              const resultTag = matchContainer.find('div.cb-text-complete').first();
-              if (resultTag.length && resultTag.text().includes('won')) {
+              const resultTag = matchContainer && matchContainer.length ? 
+                matchContainer.find('div.cb-text-complete') : $(linkTag).closest('div').find('div.cb-text-complete');
+              
+              if (resultTag && resultTag.length && resultTag.text().includes('won')) {
                 const resultText = resultTag.text().trim();
-                // Extract the winning team and margin - making sure it's for this match
-                
-                // Connect result with match title for validation
-                const originalTeams = shortenTeamNames(originalTitle).split(' vs ');
-                const resultContainsTeam = originalTeams.some(team => 
-                  resultText.includes(team) || resultText.includes(team.split(' ')[0]));
-                
-                if (resultContainsTeam) {
-                  const wonMatch = resultText.match(/(.+?)\s+won\s+by\s+(.+)/i);
-                  if (wonMatch) {
-                    const winningTeam = shortenTeamNames(wonMatch[1].trim());
-                    const margin = wonMatch[2].trim();
-                    score = `${winningTeam} won by ${margin}`;
-                  } else {
-                    score = resultText; // Use full status text if pattern doesn't match
-                  }
+                // Extract the winning team and margin
+                const wonMatch = resultText.match(/(.+?)\s+won\s+by\s+(.+)/i);
+                if (wonMatch) {
+                  const winningTeam = shortenTeamNames(wonMatch[1].trim());
+                  const margin = wonMatch[2].trim();
+                  score = `${winningTeam} won by ${margin}`;
+                } else {
+                  score = resultText; // Use full status text if pattern doesn't match
                 }
               }
             }
           }
 
-          // If score is still N/A, try to fetch status directly from the match URL
+          // If score is still N/A, try to extract from match title
           if (score === 'N/A' || !score) {
-            // Extract info from URL parts
-            const matchIdMatch = href.match(/\/live-cricket-scores\/(\d+)\//);
-            if (matchIdMatch) {
-              const matchId = matchIdMatch[1];
-              // Try to extract meaningful info from the URL itself
-              const matchType = href.includes('test') ? 'Test match' : 
-                               href.includes('odi') ? 'ODI' :
-                               href.includes('t20') ? 'T20' : '';
-              
-              // Check title for match stage information
-              if (originalTitle.includes('Preview')) {
-                score = 'Match Preview';
-              } else if (originalTitle.includes('Report')) {
-                score = 'Match Report';
-              } else if (href.includes('upcoming')) {
-                score = 'Upcoming match';
+            // Check title for match stage information
+            if (originalTitle.includes('Preview')) {
+              score = 'Match Preview';
+            } else if (originalTitle.includes('Report')) {
+              score = 'Match Report';
+            } else {
+              // Look for other meaningful info like date or time
+              const dateElement = $(linkTag).closest('div').find('div.cb-font-12');
+              if (dateElement && dateElement.length) {
+                score = dateElement.text().trim();
               } else {
-                // Look for other meaningful info like date or time
-                const dateElement = matchContainer.find('div.cb-font-12').first();
-                if (dateElement.length) {
-                  // Make sure this date is not inside another match container
-                  if (dateElement.closest('li, .cb-mtch-blk, .cb-mtch-itm').is(matchContainer)) {
-                    score = dateElement.text().trim();
-                  }
-                } else {
-                  // Just extract teams as fallback
-                  const teams = shortenTeamNames(originalTitle).split(' vs ');
-                  if (teams.length === 2) {
-                    score = `${teams[0]} v ${teams[1]}`;
-                    if (matchType) {
-                      score += ` (${matchType})`;
-                    }
-                  }
+                // Just extract teams as fallback
+                const teams = shortenTeamNames(originalTitle).split(' vs ');
+                if (teams.length === 2) {
+                  score = `${teams[0]} v ${teams[1]}`;
                 }
               }
             }
@@ -313,6 +289,113 @@ async function fetchAndParseCricbuzz() {
         }
       });
     });
+
+    // If we couldn't find any matches with the primary selector,
+    // try more specific selectors from older versions
+    if (liveMatchesData.length === 0) {
+      console.log("No matches found with primary selector, trying alternatives");
+      
+      const altSelectors = [
+        "ul.cb-col.cb-col-100.videos-carousal-wrapper.cb-mtch-crd-rt-itm",
+        "div.cb-mtch-crd-rt-itm",
+        "li[class*='cb-view-all-ga cb-match-card cb-bg-white']",
+        ".cb-schdl",
+        ".cb-hmscg-bwtch-lst"
+      ];
+      
+      for (const selector of altSelectors) {
+        const elements = $(selector);
+        console.log(`Trying selector ${selector}, found ${elements.length} elements`);
+        
+        if (elements.length > 0) {
+          elements.each((_, el) => {
+            if (matchCount >= MAX_MATCHES_MENU) return false;
+            
+            $(el).find('a[href*="/live-cricket-scores/"]').each((_, link) => {
+              if (matchCount >= MAX_MATCHES_MENU) return false;
+              
+              try {
+                const href = $(link).attr('href');
+                const title = $(link).attr('title') || $(link).text().trim();
+                
+                if (href && title) {
+                  const url = 'https://www.cricbuzz.com' + href;
+                  
+                  // Check for duplicate
+                  const isDuplicate = liveMatchesData.some(match => match.url === url);
+                  if (isDuplicate) return;
+                  
+                  let score = '';
+                  const scoreElement = $(link).closest('div').find('.cb-lv-scrs-col, [class*="text-live"], [class*="text-complete"]');
+                  if (scoreElement.length) {
+                    score = scoreElement.text().trim();
+                  }
+                  
+                  // Check if this is a completed match status - same logic as above
+                  const thisMatchContainer = $(link).closest('li, .cb-mtch-blk, .cb-mtch-itm, .cb-srs-mtchs-tm');
+                  const statusEl = thisMatchContainer && thisMatchContainer.length ? 
+                    thisMatchContainer.find('.cb-text-complete') : $(link).closest('div').find('.cb-text-complete');
+                  
+                  if (statusEl && statusEl.length && statusEl.text().includes('won')) {
+                    const statusText = statusEl.text().trim();
+                    // Extract the winning team and margin
+                    const wonMatch = statusText.match(/(.+?)\s+won\s+by\s+(.+)/i);
+                    if (wonMatch) {
+                      const winningTeam = shortenTeamNames(wonMatch[1].trim());
+                      const margin = wonMatch[2].trim();
+                      score = `${winningTeam} won by ${margin}`;
+                    } else {
+                      score = statusText; // Use full status text if pattern doesn't match
+                    }
+                  }
+                  
+                  // Ensure we always have some score - never show N/A
+                  if (!score || score === 'N/A') {
+                    // Check title for match stage information
+                    if (title.includes('Preview')) {
+                      score = 'Match Preview';
+                    } else if (title.includes('Report')) {
+                      score = 'Match Report';
+                    } else {
+                      // Look for other meaningful info like date or time
+                      const dateElement = $(link).closest('div').find('div.cb-font-12');
+                      if (dateElement && dateElement.length) {
+                        score = dateElement.text().trim();
+                      } else {
+                        // Just extract teams as fallback
+                        const teams = shortenTeamNames(title).split(' vs ');
+                        if (teams.length === 2) {
+                          score = `${teams[0]} v ${teams[1]}`;
+                        } else {
+                          score = 'Match scheduled';
+                        }
+                      }
+                    }
+                  }
+                  
+                  const shortTitle = shortenTeamNames(title);
+                  
+                  liveMatchesData.push({
+                    title: shortTitle.substring(0, 100),
+                    score: score.substring(0, 100),
+                    url: url
+                  });
+                  
+                  matchCount++;
+                  console.log(`Added match from alt selector: ${shortTitle}`);
+                }
+              } catch (err) {
+                console.error(`Error processing match in alternate selector:`, err);
+              }
+            });
+          });
+          
+          if (liveMatchesData.length > 0) {
+            break; // Exit the loop if we found matches
+          }
+        }
+      }
+    }
 
     console.log(`Successfully parsed ${liveMatchesData.length} matches from homepage.`);
     matchesCache = liveMatchesData;
