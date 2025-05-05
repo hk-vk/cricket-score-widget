@@ -375,7 +375,7 @@ async function fetchDetailedScore(url) {
                     balls: balls.toString(),
                     fours: fours,
                     sixes: sixes,
-                    sr: strikeRate, // Use calculated SR
+                    strikeRate: strikeRate, // MODIFIED: Changed key from sr to strikeRate
                     isStriker: isStriker
                 });
             }
@@ -414,7 +414,7 @@ async function fetchDetailedScore(url) {
                     maidens: maidens,
                     runs: runsConceded.toString(),
                     wickets: wickets,
-                    eco: economyRate, // Use calculated Econ
+                    economy: economyRate, // MODIFIED: Changed key from eco to economy
                     isCurrent: isCurrent
                 });
             }
