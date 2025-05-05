@@ -2,9 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
-  base: './', // Use relative paths for Electron build
+  base: command === 'serve' ? '/' : './',
   server: {
     port: 5173, // Default Vite port
     strictPort: true,
@@ -14,4 +14,4 @@ export default defineConfig({
     assetsDir: '.',
     emptyOutDir: true,
   },
-}); 
+})); 
