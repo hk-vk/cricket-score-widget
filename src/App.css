@@ -275,9 +275,9 @@ body {
 
 .stats-table {
   width: 100%;
-  table-layout: fixed;
+  table-layout: auto;
   border-collapse: collapse;
-  font-size: 11px; 
+  font-size: 11px;
   background-color: transparent; /* Let container background show */
 }
 
@@ -286,10 +286,22 @@ body {
   padding: 7px 8px;
   text-align: center;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   text-shadow: none;
+}
+
+/* Target only the first column (Batter/Bowler) */
+.stats-table th:first-child,
+.stats-table td:first-child {
+  text-align: left; /* Align names to the left */
+}
+
+/* Apply overflow/ellipsis to all OTHER columns */
+.stats-table th:not(:first-child),
+.stats-table td:not(:first-child) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center; /* Keep other columns centered */
 }
 
 .stats-table th {
