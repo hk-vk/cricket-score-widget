@@ -28,6 +28,17 @@ let defaultTrayIcon = null; // Store default NativeImage
 let initialWindowPositionForDrag = null; // Store window position at drag start
 let isWindowPinned = true; // Track pinned state in main, default true
 
+// --- ADDED: Player Name Formatting Helper ---
+function formatPlayerName(fullName) {
+  if (!fullName || typeof fullName !== 'string') return 'N/A';
+  const parts = fullName.trim().split(/\s+/); // Split by whitespace
+  if (parts.length === 1) return parts[0]; // Return single name as is
+  const firstNameInitial = parts[0].charAt(0).toUpperCase();
+  const lastName = parts[parts.length - 1];
+  return `${firstNameInitial}. ${lastName}`;
+}
+// --- END ADDED ---
+
 // --- Team Name Abbreviation Helper ---
 const teamAbbreviations = {
   "Punjab Kings": "PBKS",
@@ -346,13 +357,25 @@ async function fetchDetailedScore(url) {
             const isStriker = $(row).find('div.cb-col-50').text().includes('*'); // Check for asterisk
             const cols = $(row).find('div.cb-col');
             if (cols.length >= 6) { // Name, R, B, 4s, 6s, SR
+                const runs = parseInt($(cols[1]).text().trim(), 10);
+                const balls = parseInt($(cols[2]).text().trim(), 10);
+                const fours = $(cols[3]).text().trim();
+                const sixes = $(cols[4]).text().trim();
+
+                // --- MODIFIED: Calculate SR ---
+                let strikeRate = '0.00';
+                if (!isNaN(runs) && !isNaN(balls) && balls > 0) {
+                    strikeRate = ((runs / balls) * 100).toFixed(2);
+                }
+                // --- END MODIFIED ---
+
                 result.batters.push({
-                    name: name,
-                    runs: $(cols[1]).text().trim(),
-                    balls: $(cols[2]).text().trim(),
-                    fours: $(cols[3]).text().trim(),
-                    sixes: $(cols[4]).text().trim(),
-                    sr: $(cols[5]).text().trim(),
+                    name: formatPlayerName(name), // Use formatted name
+                    runs: runs.toString(), // Keep as string for consistency? Or send as number? Sticking to string for now.
+                    balls: balls.toString(),
+                    fours: fours,
+                    sixes: sixes,
+                    sr: strikeRate, // Use calculated SR
                     isStriker: isStriker
                 });
             }
@@ -366,13 +389,32 @@ async function fetchDetailedScore(url) {
             const isCurrent = $(row).find('div.cb-col-50').text().includes('*'); // Check for asterisk
             const cols = $(row).find('div.cb-col');
              if (cols.length >= 6) { // Name, O, M, R, W, ECO
+                const oversText = $(cols[1]).text().trim();
+                const maidens = $(cols[2]).text().trim();
+                const runsConceded = parseInt($(cols[3]).text().trim(), 10);
+                const wickets = $(cols[4]).text().trim();
+
+                // --- MODIFIED: Calculate Econ ---
+                let economyRate = '0.00';
+                const oversParts = oversText.split('.');
+                const fullOvers = parseInt(oversParts[0], 10);
+                const ballsBowled = oversParts.length > 1 ? parseInt(oversParts[1], 10) : 0;
+
+                if (!isNaN(runsConceded) && !isNaN(fullOvers) && !isNaN(ballsBowled)) {
+                    const totalBalls = fullOvers * 6 + ballsBowled;
+                    if (totalBalls > 0) {
+                        economyRate = ((runsConceded / totalBalls) * 6).toFixed(2);
+                    }
+                }
+                // --- END MODIFIED ---
+
                 result.bowlers.push({
-                    name: name,
-                    overs: $(cols[1]).text().trim(),
-                    maidens: $(cols[2]).text().trim(),
-                    runs: $(cols[3]).text().trim(),
-                    wickets: $(cols[4]).text().trim(),
-                    eco: $(cols[5]).text().trim(),
+                    name: formatPlayerName(name), // Use formatted name
+                    overs: oversText,
+                    maidens: maidens,
+                    runs: runsConceded.toString(),
+                    wickets: wickets,
+                    eco: economyRate, // Use calculated Econ
                     isCurrent: isCurrent
                 });
             }
