@@ -242,15 +242,16 @@ async function fetchDetailedScore(url) {
     // Initialize result object
     const result = {
       title: 'N/A',
-      score: 'N/A',
-      opponent_score: null,
-      status: '',
-      batters: [],
-      bowlers: [],
+      score: 'N/A', // Current batting team score or primary score line
+      opponent_score: null, // Opponent score (usually from completed innings)
+      status: '', // Match status (e.g., Live, Result, Stumps)
+      batters: [], // Array of { name, runs, balls, fours, sixes, sr, isStriker }
+      bowlers: [], // Array of { name, overs, maidens, runs, wickets, eco, isCurrent }
       team1_name: null,
       team2_name: null,
       pom: null,
-      is_complete: false
+      is_complete: false,
+      recent_balls: null // Store recent balls string if available
     };
 
     // Extract title and team names
@@ -261,116 +262,151 @@ async function fetchDetailedScore(url) {
     } else {
       const htmlTitle = $('title');
       if (htmlTitle.length) {
-        originalTitleText = htmlTitle.text(); // Keep potential extra info for parsing
+        originalTitleText = htmlTitle.text();
       }
     }
 
-    // --- Shorten Title ---
-    result.title = shortenTeamNames(originalTitleText).substring(0, 150); // Use shortened title for display
-    // --- End Shorten Title ---
+    result.title = shortenTeamNames(originalTitleText).substring(0, 150);
 
-    // Parse team names from ORIGINAL title before shortening for better accuracy
-    const vsMatch = originalTitleText.match(/^(.*?) vs (.*?)(?:,|$)/); // Adjusted regex
+    const vsMatch = originalTitleText.match(/^(.*?) vs (.*?)(?:,|$)/);
     if (vsMatch) {
-      result.team1_name = teamAbbreviations[vsMatch[1].trim()] || vsMatch[1].trim(); // Abbreviate if possible
-      result.team2_name = teamAbbreviations[vsMatch[2].trim()] || vsMatch[2].trim(); // Abbreviate if possible
+      result.team1_name = teamAbbreviations[vsMatch[1].trim()] || vsMatch[1].trim();
+      result.team2_name = teamAbbreviations[vsMatch[2].trim()] || vsMatch[2].trim();
       console.log(`Parsed teams: ${result.team1_name} vs ${result.team2_name}`);
     }
 
     // Score and Status Extraction
     const scoreWrapper = $('div.cb-scrs-wrp');
-    const statusElement = $('div.cb-min-stts');
+    const statusElement = $('div.cb-min-stts'); // Primarily for completed matches
+    const liveStatusElement = scoreWrapper.find('div.cb-text-inprogress, div.cb-text-live'); // Live status
+    const completedStatusElement = scoreWrapper.find('div.cb-text-complete'); // More specific completion
 
-    if (scoreWrapper.length) {
-      const teamScores = scoreWrapper.find('div.cb-min-tm');
-      if (teamScores.length === 2) {
-        // Likely a completed or between-innings state
+    if (completedStatusElement.length || statusElement.length) {
+        // Match likely complete or between innings
         result.is_complete = true;
-        const score1 = $(teamScores[0]).text().trim();
-        const score2 = $(teamScores[1]).text().trim();
+        result.status = completedStatusElement.length ? completedStatusElement.text().trim() : statusElement.text().trim();
 
-        // Use abbreviated names for matching if they exist
-        const team1Check = result.team1_name || "Team1";
-        const team2Check = result.team2_name || "Team2";
-
-        if (score1.includes(team1Check)) {
-          result.score = score1;
-          result.opponent_score = score2;
-        } else if (score2.includes(team1Check)) {
-          result.score = score2;
-          result.opponent_score = score1;
-        } else if (score1.includes(team2Check)) { // Check against team 2 if team 1 didn't match
-             result.score = score1; // Assuming score1 belongs to team2 if score1 contains team2 name
-             result.opponent_score = score2;
-        } else if (score2.includes(team2Check)) {
-             result.score = score2; // Assuming score2 belongs to team2 if score2 contains team2 name
-             result.opponent_score = score1;
-        } else { // Fallback if names don't match abbreviations well
-          result.score = score1;
-          result.opponent_score = score2;
-        }
-
-        // Check completion status
-        if (statusElement.length) {
-          const statusText = statusElement.text().trim();
-          result.status = statusText;
-          const completionIndicators = ['won by', 'draw', 'tied', 'no result'];
-          result.is_complete = completionIndicators.some(indicator => 
-            statusText.toLowerCase().includes(indicator));
-        }
-      } else if (teamScores.length === 1) {
-        // Live match, one team batting
-        result.is_complete = false;
-        const battingScoreRaw = $(teamScores[0]).text().trim();
-        
-        // Try to find opponent score
-        const opponentScoreTag = scoreWrapper.find('div.cb-text-gray');
-        if (opponentScoreTag.length) {
-          result.opponent_score = opponentScoreTag.text().trim();
-        }
-
-        // Assign batting score - prioritize abbreviated names if available
-        const team1Check = result.team1_name || "Team1";
-        const team2Check = result.team2_name || "Team2";
-        if (battingScoreRaw.includes(team1Check)) {
-          result.score = battingScoreRaw;
-         } else if (battingScoreRaw.includes(team2Check)) {
-          result.score = battingScoreRaw;
+        const teamScores = scoreWrapper.find('div.cb-min-tm'); // Scores for completed matches often here
+         if (teamScores.length >= 1) {
+            result.score = $(teamScores[0]).text().trim();
+            if (teamScores.length === 2) {
+                 result.opponent_score = $(teamScores[1]).text().trim();
+            }
         } else {
-             result.score = battingScoreRaw; // Fallback
+            // Fallback: try extracting from live score area if .cb-min-tm isn't present
+             const liveScoreTag = scoreWrapper.find('div.cb-min-bat-rw span.cb-font-20.text-bold');
+             if (liveScoreTag.length) {
+                 result.score = liveScoreTag.text().trim();
+             }
+             const opponentScoreTag = scoreWrapper.find('div.cb-text-gray'); // Sometimes opponent score is here
+             if (opponentScoreTag.length) {
+                 result.opponent_score = opponentScoreTag.text().trim();
+            }
         }
-      }
+
+        const completionIndicators = ['won by', 'draw', 'tied', 'no result', 'abandoned', 'complete'];
+        result.is_complete = completionIndicators.some(indicator =>
+            result.status.toLowerCase().includes(indicator));
+
+        // Player of the Match
+        const pomItem = $('div.cb-mom-itm');
+        if (pomItem.length) {
+          const pomLabel = pomItem.find('span.cb-text-gray');
+          const pomNameTag = pomItem.find('a.cb-link-undrln');
+          if (pomLabel.length &&
+              pomLabel.text().trim().includes('PLAYER OF THE MATCH') &&
+              pomNameTag.length) {
+            result.pom = pomNameTag.text().trim();
+          }
+        }
+
+    } else if (liveStatusElement.length) {
+        // Live match
+        result.is_complete = false;
+        result.status = liveStatusElement.text().trim();
+
+        const liveScoreTag = scoreWrapper.find('div.cb-min-bat-rw span.cb-font-20.text-bold');
+        if (liveScoreTag.length) {
+            result.score = liveScoreTag.text().trim();
+        } else {
+            result.score = 'Score N/A'; // Fallback if live score isn't found
+        }
+
+        // Attempt to find opponent score (might be in gray text or elsewhere)
+         const opponentScoreTag = scoreWrapper.find('h2.cb-text-gray.cb-font-16.text-normal'); // Selector from completed state, might work sometimes
+         if (opponentScoreTag.length) {
+             result.opponent_score = opponentScoreTag.text().trim();
+         }
+
+        // Extract Batters
+        const batterTable = $('div.cb-min-inf:has(div.cb-min-hdr-rw:contains(Batter))');
+        batterTable.find('div.cb-min-itm-rw').each((_, row) => {
+            const nameTag = $(row).find('div.cb-col-50 a');
+            const name = nameTag.text().trim();
+            const isStriker = $(row).find('div.cb-col-50').text().includes('*'); // Check for asterisk
+            const cols = $(row).find('div.cb-col');
+            if (cols.length >= 6) { // Name, R, B, 4s, 6s, SR
+                result.batters.push({
+                    name: name,
+                    runs: $(cols[1]).text().trim(),
+                    balls: $(cols[2]).text().trim(),
+                    fours: $(cols[3]).text().trim(),
+                    sixes: $(cols[4]).text().trim(),
+                    sr: $(cols[5]).text().trim(),
+                    isStriker: isStriker
+                });
+            }
+        });
+
+        // Extract Bowlers
+        const bowlerTable = $('div.cb-min-inf:has(div.cb-min-hdr-rw:contains(Bowler))');
+        bowlerTable.find('div.cb-min-itm-rw').each((_, row) => {
+            const nameTag = $(row).find('div.cb-col-50 a');
+            const name = nameTag.text().trim();
+            const isCurrent = $(row).find('div.cb-col-50').text().includes('*'); // Check for asterisk
+            const cols = $(row).find('div.cb-col');
+             if (cols.length >= 6) { // Name, O, M, R, W, ECO
+                result.bowlers.push({
+                    name: name,
+                    overs: $(cols[1]).text().trim(),
+                    maidens: $(cols[2]).text().trim(),
+                    runs: $(cols[3]).text().trim(),
+                    wickets: $(cols[4]).text().trim(),
+                    eco: $(cols[5]).text().trim(),
+                    isCurrent: isCurrent
+                });
+            }
+        });
+        
+        // Extract Recent Balls
+        const recentBallsTag = $('div.cb-min-rcnt span:not(.text-bold)');
+        if (recentBallsTag.length) {
+          result.recent_balls = recentBallsTag.text().trim();
+        }
+
+    } else {
+        // Fallback if no clear status found - might be pre-match
+        result.status = 'Status unavailable';
+        const scoreTag = $('div.cb-min-bat-rw span.cb-font-20.text-bold'); // Try to get score anyway
+         if (scoreTag.length) {
+             result.score = scoreTag.text().trim();
+        }
     }
 
+    // Update Tray Tooltip Logic (remains the same)
     let displayValue = null;
     if (result.is_complete && result.status && result.status !== 'N/A') {
-        displayValue = result.status; 
+      displayValue = result.status;
     } else if (result.score && result.score !== 'N/A') {
-        displayValue = result.score; 
+      displayValue = result.score;
     }
-    
-    selectedMatchLiveScore = displayValue; 
+    selectedMatchLiveScore = displayValue;
     updateTrayTooltip(selectedMatchLiveScore); // Update tooltip only
 
-    // Player of the Match
-    if (result.is_complete) {
-      const pomItem = $('div.cb-mom-itm');
-      if (pomItem.length) {
-        const pomLabel = pomItem.find('span.cb-text-gray');
-        const pomNameTag = pomItem.find('a.cb-link-undrln');
-        if (pomLabel.length && 
-            pomLabel.text().trim().includes('PLAYER OF THE MATCH') && 
-            pomNameTag.length) {
-          result.pom = pomNameTag.text().trim();
-        }
-      }
-    }
-
-    // Extract Batters and Bowlers if needed
-    // (This part can be implemented if you want to show detailed stats)
-
     console.log('Successfully parsed detailed score data');
+    // console.log(JSON.stringify(result, null, 2)); // Optional: Log the full result for debugging
     return result;
+
   } catch (error) {
     console.error('Error fetching detailed score:', error);
     selectedMatchLiveScore = null;
