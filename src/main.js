@@ -207,71 +207,125 @@ async function fetchAndParseCricbuzz() {
           if (scoreDiv.length) {
             score = scoreDiv.text().trim();
           } else {
-            // Try different status indicators
-            const statusSelectors = [
-              'div[class*="cb-text-live"]',
-              'div[class*="cb-text-complete"]', 
-              'span[class*="cb-text-preview"]',
-              'div.cb-text-rain',
-              'div.cb-text-stump',
-              'div.cb-text-lunch',
-              'div.cb-text-tea',
-              'div.cb-text-innings-break'
-            ];
-            
-            // Define match container for this specific match
+            // Get the closest match-specific container
             const matchContainer = $(linkTag).closest('li, .cb-mtch-blk, .cb-mtch-itm, .cb-srs-mtchs-tm');
             
-            let statusFound = false;
+            // Extract match teams from title for validation
+            const matchTeams = shortenTeamNames(originalTitle).split(' vs ');
+            const team1 = matchTeams[0]?.trim();
+            const team2 = matchTeams.length > 1 ? matchTeams[1]?.trim() : '';
+            
+            // Extract status - ONLY if it's within this match container and not within another match
+            let statusText = '';
+            const statusSelectors = [
+              '.cb-text-complete',   // Match completed/result
+              '.cb-text-live',       // Live match
+              '.cb-text-preview',    // Match preview
+              '.cb-text-rain',       // Rain delay
+              '.cb-text-stump',      // Stumps
+              '.cb-text-lunch',      // Lunch break
+              '.cb-text-tea',        // Tea break
+              '.cb-text-innings-break', // Innings break
+              '.cb-text-drinks',     // Drinks break
+              '.cb-text-delayed',    // Delayed start
+              '.cb-text-abandoned',  // Abandoned match
+              '.cb-min-stts',        // General status container
+              '[class*="cb-text-"]'  // Catch-all for other status classes
+            ];
+            
+            // First try to find a specific status within this match container
             for (const selector of statusSelectors) {
-              const statusTag = matchContainer && matchContainer.length ? 
-                matchContainer.find(selector) : $(linkTag).find(selector);
-              
-              if (statusTag && statusTag.length) {
-                score = statusTag.text().trim();
-                statusFound = true;
-                break;
+              if (matchContainer && matchContainer.length) {
+                const statusElements = matchContainer.find(selector);
+                if (statusElements.length) {
+                  // Found a match-specific status
+                  statusElements.each((_, el) => {
+                    const elText = $(el).text().trim();
+                    // Make sure this text actually relates to this match and not another
+                    if (elText) {
+                      // Check if this status is associated with this match
+                      // by verifying it's not part of another match link
+                      const isInAnotherLink = $(el).closest('a[href*="/live-cricket-scores/"]').length > 0 && 
+                        !$(el).closest('a[href*="/live-cricket-scores/"]').is(linkTag);
+                      
+                      if (!isInAnotherLink) {
+                        statusText = elText;
+                        return false; // break each loop
+                      }
+                    }
+                  });
+                  
+                  if (statusText) break; // Found valid status, stop checking selectors
+                }
               }
             }
             
-            // Check for completed match result
-            if (!statusFound) {
-              const resultTag = matchContainer && matchContainer.length ? 
-                matchContainer.find('div.cb-text-complete') : $(linkTag).closest('div').find('div.cb-text-complete');
+            // If no status found in the container, try fetching directly from the match page
+            if (!statusText) {
+              // Check if we have match ID in the URL to potentially fetch more details
+              const matchId = href.match(/\/(\d+)\//);
+              if (matchId && matchId[1]) {
+                console.log(`No status found in homepage for match ID ${matchId[1]}, will fetch from match page if needed`);
+                // We'll let the detailed view handle this when the match is selected
+              }
+            }
+            
+            // Extract winning information if this is a completed match
+            let winnerInfo = '';
+            const resultElement = matchContainer.find('.cb-text-complete');
+            if (resultElement.length && resultElement.text().includes('won')) {
+              // Extract match result with team and margin
+              const resultText = resultElement.text().trim();
               
-              if (resultTag && resultTag.length && resultTag.text().includes('won')) {
-                const resultText = resultTag.text().trim();
-                // Extract the winning team and margin
+              // Validate this result belongs to THIS match
+              // Check if result mentions at least one of the teams from the title
+              const resultMentionsTeam = team1 && resultText.includes(team1) || 
+                                        team2 && resultText.includes(team2);
+              
+              if (resultMentionsTeam) {
                 const wonMatch = resultText.match(/(.+?)\s+won\s+by\s+(.+)/i);
                 if (wonMatch) {
                   const winningTeam = shortenTeamNames(wonMatch[1].trim());
                   const margin = wonMatch[2].trim();
-                  score = `${winningTeam} won by ${margin}`;
+                  winnerInfo = `${winningTeam} won by ${margin}`;
                 } else {
-                  score = resultText; // Use full status text if pattern doesn't match
+                  winnerInfo = resultText;
                 }
               }
             }
+            
+            // Combine status and winner information, being careful not to duplicate
+            if (statusText && winnerInfo) {
+              // Don't repeat winner info if it's already in the status
+              if (!statusText.includes('won')) {
+                score = `${statusText} • ${winnerInfo}`;
+              } else {
+                score = statusText;
+              }
+            } else if (statusText) {
+              score = statusText;
+            } else if (winnerInfo) {
+              score = winnerInfo;
+            }
           }
 
-          // If score is still N/A, try to extract from match title
-          if (score === 'N/A' || !score) {
+          // If still no score, try to extract meaningful info from the match title or URL
+          if (!score || score === 'N/A') {
             // Check title for match stage information
             if (originalTitle.includes('Preview')) {
               score = 'Match Preview';
             } else if (originalTitle.includes('Report')) {
               score = 'Match Report';
             } else {
-              // Look for other meaningful info like date or time
-              const dateElement = $(linkTag).closest('div').find('div.cb-font-12');
-              if (dateElement && dateElement.length) {
-                score = dateElement.text().trim();
+              // Pull team information from title as fallback
+              const teams = shortenTeamNames(originalTitle).split(' vs ');
+              if (teams.length === 2) {
+                const matchTypeHint = href.includes('test') ? 'Test' : 
+                                     href.includes('odi') ? 'ODI' : 
+                                     href.includes('t20') ? 'T20' : '';
+                score = `${teams[0]} v ${teams[1]}${matchTypeHint ? ` (${matchTypeHint})` : ''}`;
               } else {
-                // Just extract teams as fallback
-                const teams = shortenTeamNames(originalTitle).split(' vs ');
-                if (teams.length === 2) {
-                  score = `${teams[0]} v ${teams[1]}`;
-                }
+                score = 'Match scheduled';
               }
             }
           }
@@ -333,24 +387,33 @@ async function fetchAndParseCricbuzz() {
                   
                   // Check if this is a completed match status - same logic as above
                   const thisMatchContainer = $(link).closest('li, .cb-mtch-blk, .cb-mtch-itm, .cb-srs-mtchs-tm');
-                  const statusEl = thisMatchContainer && thisMatchContainer.length ? 
-                    thisMatchContainer.find('.cb-text-complete') : $(link).closest('div').find('.cb-text-complete');
                   
-                  if (statusEl && statusEl.length && statusEl.text().includes('won')) {
-                    const statusText = statusEl.text().trim();
-                    // Extract the winning team and margin
-                    const wonMatch = statusText.match(/(.+?)\s+won\s+by\s+(.+)/i);
-                    if (wonMatch) {
-                      const winningTeam = shortenTeamNames(wonMatch[1].trim());
-                      const margin = wonMatch[2].trim();
-                      score = `${winningTeam} won by ${margin}`;
-                    } else {
-                      score = statusText; // Use full status text if pattern doesn't match
+                  // Try to find any status text
+                  const statusSelectors = [
+                    '.cb-text-complete',
+                    '.cb-text-live',
+                    '.cb-text-preview',
+                    '.cb-text-rain', 
+                    '.cb-text-innings-break',
+                    '.cb-text-stump',
+                    '.cb-min-stts',
+                    '[class*="cb-text-"]'
+                  ];
+                  
+                  let statusText = '';
+                  
+                  // Check for any status text within this match's container
+                  for (const selector of statusSelectors) {
+                    const statusEl = thisMatchContainer.find(selector);
+                    if (statusEl.length) {
+                      statusText = statusEl.text().trim();
+                      if (statusText) break;
                     }
                   }
                   
-                  // Ensure we always have some score - never show N/A
-                  if (!score || score === 'N/A') {
+                  if (statusText) {
+                    score = statusText;
+                  } else if (score === '') {
                     // Check title for match stage information
                     if (title.includes('Preview')) {
                       score = 'Match Preview';
@@ -473,23 +536,51 @@ async function fetchDetailedScore(url) {
       'div.cb-text-drinks',
       'div.cb-text-stump',
       'div.cb-text-innings-break',
+      'div.cb-text-delayed',
+      'div.cb-text-abandoned',
+      // Combined status for special cases (like Innings Break - Rain Stops Play)
+      '[class*="cb-text-"][class*="-"]',
       // Generic fallbacks
       'div[class*="cb-text-"]',
-      'span.cb-text-gray'
+      'span.cb-text-gray',
+      // Match state indicators from the page
+      '.cb-font-12.cb-text-gray.cb-ovr-flo'
     ];
     
     let statusFound = false;
+    let combinedStatus = [];
     
     // Try selectors in order (from most specific to most generic)
     for (const selector of statusSelectors) {
-      const statusElement = $(selector);
-      if (statusElement.length) {
-        const statusText = statusElement.text().trim();
-        // Ignore very short status texts or those that don't look like status
-        if (statusText.length > 2 && !statusText.match(/^(\d+|[a-z]+)$/i)) {
-          result.status = statusText;
+      const statusElements = $(selector);
+      
+      if (statusElements.length) {
+        statusElements.each((_, el) => {
+          const statusText = $(el).text().trim();
+          // Ignore very short status texts or those that don't look like status
+          if (statusText.length > 2 && !statusText.match(/^(\d+|[a-z]+)$/i)) {
+            combinedStatus.push(statusText);
+          }
+        });
+        
+        if (combinedStatus.length > 0) {
+          // Remove duplicates and combine statuses
+          const uniqueStatuses = [...new Set(combinedStatus)];
+          result.status = uniqueStatuses.join(' - ');
           statusFound = true;
           break;
+        }
+      }
+    }
+    
+    // If still no status, try to find a match status paragraph
+    if (!statusFound) {
+      const statusParas = $('.cb-min-stts, .cb-col-100.cb-min-stts, .cb-min-pad.cb-col-100');
+      if (statusParas.length) {
+        const statusText = statusParas.text().trim();
+        if (statusText.length > 2) {
+          result.status = statusText;
+          statusFound = true;
         }
       }
     }
