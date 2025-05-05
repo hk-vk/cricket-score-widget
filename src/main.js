@@ -83,7 +83,8 @@ function shortenTeamNames(title) {
 }
 
 // --- Function to create score icon --- 
-/* Commenting out dynamic icon generation for now
+// Commenting out dynamic icon generation for now
+/*
 function createScoreIcon(textToDisplay) {
   const size = 32; 
   const padding = 2; 
@@ -103,13 +104,13 @@ function createScoreIcon(textToDisplay) {
     <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
       <style>
         .background {
-          fill: rgba(100, 100, 100, 0.85); /* Neutral gray background */
-          stroke: rgba(220, 220, 220, 0.6); /* Light gray border */
+          fill: rgba(100, 100, 100, 0.85); // Neutral gray background
+          stroke: rgba(220, 220, 220, 0.6); // Light gray border
           stroke-width: 1;
         }
         .score { 
           font: bold 10px Arial, sans-serif; 
-          fill: white; /* Keep text white */
+          fill: white; // Keep text white
           text-anchor: middle; 
           dominant-baseline: central;
         }
