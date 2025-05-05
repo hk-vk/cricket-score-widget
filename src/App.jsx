@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 function App() {
@@ -10,6 +10,7 @@ function App() {
   const [theme, setTheme] = useState('dark'); // Default theme state
   const [commentary, setCommentary] = useState('');
   const [showCommentary, setShowCommentary] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
 
   // --- Data Fetching ---
   const fetchData = async () => {
@@ -61,13 +62,9 @@ function App() {
     fetchData(); // Initial fetch
 
     const removeRefreshListener = window.electronAPI.onRefreshData(() => {
-      console.log('Refresh triggered');
-      if (selectedMatchData && selectedMatchData.url) {
-        fetchDetails(selectedMatchData.url);
-        if (showCommentary) {
-          fetchCommentary();
-        }
-      } else {
+      console.log('Refresh data signal received from main.');
+      if (!selectedMatchData) {
+        console.log('Refreshing list data as no match is selected.');
         fetchData();
       }
     });
@@ -82,22 +79,20 @@ function App() {
       setTheme(newTheme);
     });
     
-    // --- ADDED: Listener for updates pushed from main process ---
     const removeDetailsUpdateListener = window.electronAPI.onUpdateSelectedDetails((details) => {
       if (details && selectedMatchData && details.url === selectedMatchData.url) {
           console.log('Received updated details from main process', details);
-          setSelectedMatchData(details); 
+          setSelectedMatchData(details);
       }
     });
-    // --- END ADDED ---
 
     return () => {
       removeRefreshListener();
       removeToggleListener();
       removeThemeListener();
-      removeDetailsUpdateListener(); // --- ADDED: Cleanup listener
+      removeDetailsUpdateListener();
     };
-  }, [selectedMatchData]); // Add selectedMatchData dependency to re-run if it changes
+  }, [selectedMatchData]);
 
   useEffect(() => {
     if (showCommentary) {
@@ -115,6 +110,10 @@ function App() {
 
   const toggleCommentary = () => {
     setShowCommentary(!showCommentary);
+  };
+
+  const togglePin = () => {
+    setIsPinned(!isPinned);
   };
 
   // --- Table Components ---
@@ -235,30 +234,31 @@ function App() {
               </svg>
             </button>
             
-            {/* Commentary button (middle) */}
-            {/* <div className="commentary-container">
-              <button 
-                className="icon-button commentary-button" 
-                onClick={toggleCommentary} 
-                title="View commentary"
-                onMouseEnter={() => setShowCommentary(true)}
-                onMouseLeave={() => setShowCommentary(false)}
-              >
+            {/* Pin/Unpin button (middle) */}
+            <button 
+              className="icon-button pin-button" 
+              onClick={togglePin} 
+              title={isPinned ? "Unpin window" : "Pin window (Always on Top)"}
+            >
+              {isPinned ? (
+                // Unpin Icon (e.g., pin with slash)
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="8" />
-                  <line x1="12" y1="8" x2="12" y2="16" />
-                  <line x1="8" y1="12" x2="16" y2="12" />
+                  <line x1="2" y1="2" x2="22" y2="22"></line>
+                  <path d="M14.5 10.5c-1.31.68-2.87.5-4.05-.17l-5.58 5.58c-1.56 1.56-1.56 4.09 0 5.66.78.78 1.8 1.17 2.83 1.17s2.05-.39 2.83-1.17l5.58-5.58c.68-1.18.85-2.74.17-4.05"></path>
+                  <path d="m18 12 2-2 1-1c.63-.63.63-1.7 0-2.34l-2.34-2.34c-.63-.63-1.7-.63-2.34 0l-1 1-2 2"></path>
+                  <path d="m7.5 2.5 1 1"></path>
+                  <path d="M14 8.5c.78.78 1.17 1.8 1.17 2.83 0 .71-.14 1.4-.42 2.02"></path>
                 </svg>
-              </button>
-              
-              {showCommentary && (
-                <div className="commentary-tooltip">
-                  <div className="commentary-tooltip-content">
-                    {loading ? 'Loading commentary...' : commentary || 'No commentary available'}
-                  </div>
-                </div>
+              ) : (
+                // Pin Icon
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14.5 10.5c-1.31.68-2.87.5-4.05-.17l-5.58 5.58c-1.56 1.56-1.56 4.09 0 5.66.78.78 1.8 1.17 2.83 1.17s2.05-.39 2.83-1.17l5.58-5.58c.68-1.18.85-2.74.17-4.05"></path>
+                  <path d="m18 12 2-2 1-1c.63-.63.63-1.7 0-2.34l-2.34-2.34c-.63-.63-1.7-.63-2.34 0l-1 1-2 2"></path>
+                  <path d="m7.5 2.5 1 1"></path>
+                  <path d="M14 8.5c.78.78 1.17 1.8 1.17 2.83 0 1.02-.39 2.05-1.17 2.83"></path>
+                </svg>
               )}
-            </div> */}
+            </button>
 
             {/* Minimize button (right) */}
             <button className="icon-button minimize-button" onClick={() => setIsMinimizedView(true)} title="Minimize view">

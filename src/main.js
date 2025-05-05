@@ -12,7 +12,8 @@ const isDev = process.env.NODE_ENV !== 'production';
 
 // --- Window Size & Positioning ---
 const WINDOW_WIDTH = 280;
-const WINDOW_HEIGHT = 350;
+const WINDOW_HEIGHT = 350; // Default height for list view
+const WINDOW_HEIGHT_DETAIL = 320; // Height for detail view
 const MARGIN_X = 10;
 const MARGIN_Y = 10;
 
@@ -24,6 +25,8 @@ let currentTheme = 'dark'; // Default theme
 let selectedMatchLiveScore = null; // Variable to store the live score string
 let staticIconPath = null; // Store path to original icon
 let defaultTrayIcon = null; // Store default NativeImage
+let initialWindowPositionForDrag = null; // Store window position at drag start
+let isWindowPinned = true; // Track pinned state in main, default true
 
 // --- Team Name Abbreviation Helper ---
 const teamAbbreviations = {
@@ -397,12 +400,52 @@ ipcMain.handle('fetch-detailed-score', async (_, url) => {
 
 ipcMain.on('select-match', (_, url) => {
   console.log(`Match selected/deselected: ${url}`);
-  currentMatchUrl = url; 
-  if (!url) {
+  currentMatchUrl = url;
+
+  let targetHeight;
+  if (url) {
+    targetHeight = WINDOW_HEIGHT_DETAIL;
+  } else {
     selectedMatchLiveScore = null;
-    updateTrayTooltip(null); // Update tooltip only
+    updateTrayTooltip(null); 
+    targetHeight = WINDOW_HEIGHT;
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      const currentBounds = mainWindow.getBounds();
+      const currentWidth = currentBounds.width; 
+      const currentX = currentBounds.x; // <-- Get current X position
+      
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { /* width: screenWidth, */ height: screenHeight } = primaryDisplay.workAreaSize;
+      
+      // Use current X, calculate new Y based on target height
+      const xPos = currentX; // <-- Use the current X
+      const yPos = screenHeight - targetHeight - MARGIN_Y; 
+      
+      console.log(`Resizing window. Target Height: ${targetHeight}, Using Current X: ${xPos}, New Y: ${yPos}`);
+      
+      // Set Size first
+      mainWindow.setSize(currentWidth, targetHeight, false); 
+      // THEN set Position (using current X and new Y)
+      mainWindow.setPosition(xPos, yPos, false); 
+
+    } catch (e) {
+      console.error("Error resizing/repositioning window on match select:", e);
+    }
   }
 });
+
+// --- ADDED: Always on Top Handler ---
+ipcMain.on('set-always-on-top', (_, isPinned) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    console.log(`Setting Always on Top to: ${isPinned}`);
+    mainWindow.setAlwaysOnTop(isPinned, 'screen-saver'); 
+    isWindowPinned = isPinned; // Update the tracked state
+  }
+});
+// --- END ADDED ---
 
 // --- Window Creation ---
 function createWindow() {
@@ -424,8 +467,8 @@ function createWindow() {
     transparent: true,
     backgroundColor: '#00000000',
     opacity: 1.0,
-    roundedCorners: false, // Keep corners sharp
-    hasShadow: false,
+    roundedCorners: true, // Enable rounded corners for the window
+    hasShadow: true, // Re-enable shadow for depth
     thickFrame: false,
     skipTaskbar: true,
     alwaysOnTop: true,
@@ -496,12 +539,17 @@ function createWindow() {
     mainWindow = null;
   });
 
-  // Optional: Hide the window when it loses focus
-  // mainWindow.on('blur', () => {
-  //   if (!mainWindow.webContents.isDevToolsOpened()) {
-  //     mainWindow.hide();
-  //   }
-  // });
+  // --- ADDED: Hide on Blur if Unpinned ---
+  mainWindow.on('blur', () => {
+    // Only hide if the window exists, isn't dev tools focused, and is NOT pinned
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDevToolsOpened() && !isWindowPinned) {
+      console.log('Window blurred and is unpinned. Hiding.');
+      mainWindow.hide();
+    } else {
+      console.log('Window blurred but kept visible (pinned or devtools open).');
+    }
+  });
+  // --- END ADDED ---
 
   return mainWindow; // Return the created window instance
 }
@@ -515,17 +563,28 @@ function toggleWindow() {
       mainWindow.hide();
     } else {
       console.log('Showing window');
-      // Recalculate position just before showing
+      // Determine correct height based on current state
+      const targetHeight = currentMatchUrl ? WINDOW_HEIGHT_DETAIL : WINDOW_HEIGHT;
+      
+      // Recalculate position just before showing, using target height
       try {
         const primaryDisplay = screen.getPrimaryDisplay();
         const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-        const [currentWidth, currentHeight] = mainWindow.getSize(); // Use actual size
+        const currentWidth = mainWindow.getSize()[0]; // Get current width
         const xPos = screenWidth - currentWidth;
-        const yPos = screenHeight - currentHeight - MARGIN_Y;
-        console.log(`Screen workArea (toggle): ${screenWidth}x${screenHeight}, Calculated Pos: ${xPos},${yPos}`);
-        mainWindow.setPosition(xPos, yPos, false);
+        const yPos = screenHeight - targetHeight - MARGIN_Y; // Use target height for Y pos
+        console.log(`Screen workArea (toggle): ${screenWidth}x${screenHeight}, Calculated Pos: ${xPos},${yPos}, Target Height: ${targetHeight}`);
+        // Set bounds to ensure correct height and position
+        mainWindow.setBounds({ 
+          x: xPos, 
+          y: yPos, 
+          width: currentWidth, 
+          height: targetHeight 
+        }, false);
       } catch (e) {
-          console.error("Error recalculating position:", e);
+          console.error("Error recalculating position/size:", e);
+          // Fallback: just set height if positioning fails
+          mainWindow.setSize(mainWindow.getSize()[0], targetHeight, false);
       }
       mainWindow.show();
       mainWindow.focus();
