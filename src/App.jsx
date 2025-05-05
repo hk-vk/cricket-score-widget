@@ -77,21 +77,28 @@ function App() {
       setIsMinimizedView(prev => !prev);
     });
 
-    // Add listener for theme changes
     const removeThemeListener = window.electronAPI.onSetTheme((newTheme) => {
       console.log('Theme received in renderer:', newTheme);
       setTheme(newTheme);
     });
+    
+    // --- ADDED: Listener for updates pushed from main process ---
+    const removeDetailsUpdateListener = window.electronAPI.onUpdateSelectedDetails((details) => {
+      if (details && selectedMatchData && details.url === selectedMatchData.url) {
+          console.log('Received updated details from main process', details);
+          setSelectedMatchData(details); 
+      }
+    });
+    // --- END ADDED ---
 
-    // Cleanup function
     return () => {
       removeRefreshListener();
       removeToggleListener();
-      removeThemeListener(); // Clean up theme listener
+      removeThemeListener();
+      removeDetailsUpdateListener(); // --- ADDED: Cleanup listener
     };
-  }, []); // Empty dependency array means run once on mount
+  }, [selectedMatchData]); // Add selectedMatchData dependency to re-run if it changes
 
-  // Fetch commentary when showing tooltip
   useEffect(() => {
     if (showCommentary) {
       fetchCommentary();
@@ -178,10 +185,6 @@ function App() {
   };
 
   // --- Rendering ---
-  if (loading) {
-    return <div className="container loading">Loading matches...</div>;
-  }
-
   if (error) {
     return (
       <div className="container error">
@@ -192,15 +195,12 @@ function App() {
   }
 
   return (
-    <div 
-      className={`container ${theme}`} 
-      style={{ backgroundColor: '#18181b', color: '#d1d5db' }}
-    >
+    <div className={`container ${theme}`}>
       {!selectedMatchData ? (
         // Match List View
-        <div className="match-list" style={{ height: '280px', overflow: 'hidden' }}>
+        <div className="match-list">
           <h2>Live Matches</h2>
-          <ul style={{ height: '240px', overflowY: 'scroll', display: 'block' }}>
+          <ul style={{ maxHeight: 'calc(100% - 60px)', overflowY: 'auto' }}>
             {matches.length > 0 ? (
               matches.map((match) => (
                 <li key={match.url} onClick={() => handleMatchSelect(match.url)}>
@@ -210,15 +210,8 @@ function App() {
               ))
             ) : (
               <>
-                <li>No live matches found.</li>
-                {/* Test items - will only display when "matches" is empty  
-                    This is just to test scrolling implementation */}
-                <li><span className="match-title">KKR v RR - 53rd Match</span><span className="match-score">KKR won by 1 run</span></li>
-                <li><span className="match-title">MI v CSK - 52nd Match</span><span className="match-score">MI: 145/6</span></li>
-                <li><span className="match-title">GT v RCB - 51st Match</span><span className="match-score">RCB won by 35 runs</span></li>
-                <li><span className="match-title">SRH v LSG - 50th Match</span><span className="match-score">SRH: 201/5</span></li>
-                <li><span className="match-title">DC v PBKS - 49th Match</span><span className="match-score">DC won by 23 runs</span></li>
-                <li><span className="match-title">CSK v RR - 48th Match</span><span className="match-score">RR: 187/5</span></li>
+              <li>No live matches found.</li>
+              {/* Placeholder items... */}
               </>
             )}
           </ul>
@@ -237,13 +230,13 @@ function App() {
           <div className="icon-button-group">
             {/* Back button (left) */}
             <button className="icon-button back-button" onClick={() => setSelectedMatchData(null)} title="Back to list">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M15 6L9 12L15 18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
             
             {/* Commentary button (middle) */}
-            <div className="commentary-container">
+            {/* <div className="commentary-container">
               <button 
                 className="icon-button commentary-button" 
                 onClick={toggleCommentary} 
@@ -251,9 +244,10 @@ function App() {
                 onMouseEnter={() => setShowCommentary(true)}
                 onMouseLeave={() => setShowCommentary(false)}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M19 10a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v3m-7-7a7 7 0 017-7m0 0a7 7 0 017 7m-7-7V3" 
-                    stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="8" />
+                  <line x1="12" y1="8" x2="12" y2="16" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
                 </svg>
               </button>
               
@@ -264,12 +258,12 @@ function App() {
                   </div>
                 </div>
               )}
-            </div>
+            </div> */}
 
             {/* Minimize button (right) */}
             <button className="icon-button minimize-button" onClick={() => setIsMinimizedView(true)} title="Minimize view">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M5 12H19" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
           </div>

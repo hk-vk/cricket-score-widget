@@ -1,0 +1,47 @@
+{
+  "name": "cricketwidget",
+  "version": "1.0.0",
+  "description": "A simple system tray widget for Windows that displays live cricket scores from Cricbuzz, built with Electron and React.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hk-vk/cricket-score-widget.git"
+  },
+  "keywords": [
+    "cricket",
+    "widget",
+    "electron",
+    "react",
+    "system-tray"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hk-vk/cricket-score-widget/issues"
+  },
+  "homepage": "https://github.com/hk-vk/cricket-score-widget#readme",
+  "dependencies": {
+    "axios": "^1.6.7",
+    "cheerio": "^1.0.0-rc.12",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.3",
+    "electron-builder": "^24.9.1",
+    "vite": "^5.1.1",
+    "wait-on": "^7.2.0"
+  }
+}

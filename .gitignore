@@ -29,3 +29,10 @@ venv/
 .vscode/
 .idea/ cricket_icon.ico
 .md
+/node_modules
+/dist
+/build
+/src/node_modules
+/src/dist
+/src/build
+

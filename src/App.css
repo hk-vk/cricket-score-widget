@@ -1,55 +1,158 @@
-/* Global Reset and Base Styles */
+/* Global Reset - Minimal */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  border-radius: inherit; /* Make all child elements inherit border radius */
+  border: none;
+  outline: none;
 }
 
-/* Global Transparency Settings */
-html, body, #root {
-  background-color: transparent !important;
-  color: #d1d5db;
-  height: 100%;
-  width: 100%;
-  margin: 0;
-  padding: 0;
+body, html, #root {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden !important; /* Force hidden overflow */
+  background: transparent !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  margin-right: 0 !important;
+  padding-right: 0 !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden;
-  border-radius: 0; /* Reset border radius for root elements */
+  color: #d1d5db;
+  font-size: 11px;
+  border-width: 0 !important;
+  border-radius: 0; /* No radius on root */
 }
 
 body {
-  -webkit-app-region: drag;
-  font-size: 11px;
+  -webkit-app-region: drag; /* Allow dragging on body */
 }
 
-/* Container Style */
+/* Container Style - Fills the window */
 .container {
-  -webkit-app-region: no-drag;
-  height: auto;
-  max-height: 100vh;
-  width: 100%;
-  max-width: 300px;
-  margin: 0 auto;
-  overflow: hidden;
-  padding: 10px;
-  
-  /* Blurry/Transparent Background */
-  background-color: rgba(24, 24, 27, 0.25);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  
-  /* Modern Styling with Rounded Corners */
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  
-  /* Layout */
+  -webkit-app-region: no-drag; /* Content area not draggable */
+  height: 100%; /* Fill parent height */
+  width: 100%;  /* Back to full width */
+  overflow: hidden !important; /* Force hidden overflow */
   display: flex;
   flex-direction: column;
+  margin: 0 !important; /* Ensure no auto margin */
+  padding: 0 !important;
+  margin-right: 0 !important;
+  padding-right: 0 !important;
+  
+  /* Apply background and blur here - New Palette */
+  background-image: linear-gradient(135deg, rgba(31, 25, 58, 0.6), rgba(43, 35, 81, 0.6), rgba(67, 56, 119, 0.5));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  
+  /* No borders, sharp corners */
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Explicitly hide all scrollbars */
+::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+* {
+  scrollbar-width: none !important; /* Hide scrollbar for Firefox */
+  -ms-overflow-style: none;  /* Hide scrollbar for IE/Edge */
+}
+
+/* Ensure list/detail views allow internal scrolling but hide bars */
+.match-list ul,
+.match-detail,
+.table-container {
+  overflow-y: auto !important; /* Allow vertical scroll */
+  scrollbar-width: none !important; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.match-list ul::-webkit-scrollbar,
+.match-detail::-webkit-scrollbar,
+.table-container::-webkit-scrollbar {
+  display: none !important; /* Webkit */
+}
+
+/* Match List View - Contained within container */
+.match-list {
+  flex: 1; /* Allow match list to fill space */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Contains children */
+  padding: 10px; /* Add padding inside match-list */
+  background: transparent; /* Inherit container bg */
+}
+
+.match-list h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f3f4f6;
+  padding: 8px 0;
+  margin: 0 0 6px 0;
+  text-align: center;
+  background: linear-gradient(to bottom, rgba(43, 35, 81, 0.5), transparent);
+  border-bottom: 1px solid rgba(167, 139, 250, 0.25);
+  flex-shrink: 0;
+  text-shadow: 0 0 8px rgba(196, 181, 253, 0.4);
+}
+
+.match-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  flex: 1; /* Take remaining space */
+}
+
+.match-list li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 10px 6px;
+  margin-bottom: 5px;
+  background: rgba(43, 35, 81, 0.45);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  border-radius: 0;
+  border: 1px solid rgba(167, 139, 250, 0.15); /* Subtle lavender border */
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  -webkit-app-region: no-drag;
+  overflow: hidden;
+}
+
+/* Match Detail View - Contained within container */
+.match-detail {
+  flex: 1; /* Allow match detail to fill space */
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 10px; /* Add padding inside match-detail */
+  background: transparent; /* Inherit container bg */
+}
+
+/* Remove .content-wrapper styles */
+/* The .content-wrapper class is no longer needed */
+
+/* Webkit specific settings for full transparency */
+::-webkit-scrollbar-corner,
+::-webkit-resizer,
+::-webkit-scrollbar-track-piece,
+::-webkit-scrollbar-button {
+  background-color: rgba(0, 0, 0, 0) !important;
+  border: none !important;
+}
+
+/* Dark Theme Container */
+.container.dark {
+  background-color: rgba(0, 0, 0, 0) !important;
 }
 
 /* Loading and Error States */
@@ -83,40 +186,6 @@ body {
   background: #b91c1c;
 }
 
-/* Match List View */
-.match-list {
-  background: transparent;
-  border-radius: 14px;
-  overflow: hidden;
-  max-height: calc(100vh - 20px);
-  display: flex;
-  flex-direction: column;
-  margin: 0 1px; /* Small margin to ensure no edge touches container */
-}
-
-.match-list h2 {
-  font-size: 16px;
-  font-weight: 600;
-  color: #f9fafb;
-  padding: 8px 0;
-  margin: 0 0 6px 0;
-  text-align: center;
-  background: linear-gradient(to bottom, rgba(63, 63, 70, 0.2), transparent);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  flex-shrink: 0;
-  border-radius: 14px 14px 0 0;
-}
-
-.match-list ul {
-  list-style: none;
-  padding: 0 4px 0 0;
-  margin: 0;
-  overflow-y: auto;
-  flex: 1;
-  border-radius: 0 0 14px 14px;
-  overflow: hidden;
-}
-
 /* Ensure scrollbars dont break rounded corners */
 .match-list ul::-webkit-scrollbar {
   width: 4px;
@@ -129,37 +198,16 @@ body {
   margin: 8px 0;
 }
 
-.match-list li {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 8px 10px 6px;
-  margin-bottom: 5px;
-  background: rgba(63, 63, 70, 0.2);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  cursor: pointer;
-  transition: all 0.2s ease-in-out;
-  -webkit-app-region: no-drag;
-  overflow: hidden; /* Ensure content doesn't break border radius */
-}
-
-.match-list li:last-child {
-  margin-bottom: 0;
-}
-
 .match-list li:hover {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: rgba(99, 102, 241, 0.25);
-  transform: translateX(2px);
-  box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
+  background: rgba(67, 56, 119, 0.4);
+  border-color: rgba(167, 139, 250, 0.3);
+  transform: translateX(1px);
+  box-shadow: 0 0 8px rgba(167, 139, 250, 0.2);
 }
 
 .match-title {
-  font-weight: 600;
-  color: #f3f4f6;
+  font-weight: 500; /* Slightly lighter weight */
+  color: #e5e7eb;
   font-size: 0.9em;
   width: 100%;
   text-align: left;
@@ -167,36 +215,18 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
 }
 
 .match-score {
   font-size: 0.85em;
-  color: #a0e5ff;
+  color: #c4b5fd; /* Lavender accent */
   width: 100%;
   text-align: right;
   white-space: normal;
   word-break: normal;
   line-height: 1.3;
-}
-
-/* Match Detail View */
-.match-detail {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 10px;
-  
-  /* Blurry/Transparent Background */
-  background: rgba(24, 24, 27, 0.25);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-  margin: 0 1px; /* Small margin to ensure no edge touches container */
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 
 .match-detail h3 {
@@ -204,13 +234,14 @@ body {
   font-weight: 600;
   text-align: center;
   margin-bottom: 6px;
-  color: #f9fafb;
+  color: #f3f4f6;
+  text-shadow: 0 0 6px rgba(196, 181, 253, 0.5);
 }
 
 .match-detail p {
   margin-bottom: 5px;
   font-size: 11px;
-  color: #d1d5db;
+  color: #d1d5db; /* Standard text color */
   text-align: center;
 }
 
@@ -220,31 +251,32 @@ body {
   text-align: center;
   color: #f9fafb;
   margin-bottom: 3px;
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+  text-shadow: 0 0 10px rgba(196, 181, 253, 0.5);
 }
 
 .match-detail .opponent-score {
   font-size: 0.95em;
-  color: #9ca3af;
+  color: #c4b5fd; /* Lavender accent */
   text-align: center;
   margin-bottom: 6px;
+  text-shadow: 0 0 6px rgba(196, 181, 253, 0.3);
 }
 
 .match-detail .status {
   font-size: 0.85em;
-  color: #86efac;
+  color: #a7f3d0; /* Muted green */
   text-align: center;
   font-style: italic;
   margin-bottom: 10px;
-  text-shadow: 0 0 8px rgba(134, 239, 172, 0.4);
+  text-shadow: 0 0 8px rgba(167, 243, 208, 0.4);
 }
 
 .match-detail .pom {
   text-align: center;
   font-size: 0.85em;
-  color: #facc15;
+  color: #fde047; /* Softer yellow */
   margin-top: 8px;
-  text-shadow: 0 0 8px rgba(250, 204, 21, 0.4);
+  text-shadow: 0 0 8px rgba(253, 224, 71, 0.4);
 }
 
 /* Minimized View */
@@ -277,13 +309,13 @@ body {
   overflow-x: auto;
   
   /* Blurry/Transparent Background */
-  background: rgba(39, 39, 42, 0.3);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  overflow: hidden; /* Ensure content doesn't break border radius */
+  background: rgba(31, 25, 58, 0.5); /* Darker indigo */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  border-radius: 0;
+  border: 1px solid rgba(167, 139, 250, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
 }
 
 .table-container h4 {
@@ -291,10 +323,11 @@ body {
   font-weight: 600;
   margin: 0;
   padding: 4px 8px;
-  background: linear-gradient(to right, rgba(63, 63, 70, 0.5), rgba(63, 63, 70, 0.2));
+  background: linear-gradient(to right, rgba(43, 35, 81, 0.7), rgba(43, 35, 81, 0.4));
   color: #e5e7eb;
   text-align: left;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(167, 139, 250, 0.25);
+  text-shadow: 0 0 4px rgba(196, 181, 253, 0.3);
 }
 
 .stats-table {
@@ -302,7 +335,7 @@ body {
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 10px;
-  background-color: rgba(39, 39, 42, 0.2);
+  background-color: rgba(31, 25, 58, 0.3);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
@@ -314,13 +347,18 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-bottom: 1px solid rgba(63, 63, 70, 0.5);
+  border-bottom: 1px solid rgba(167, 139, 250, 0.2);
 }
 
 .stats-table th {
   font-weight: 600;
-  color: #9ca3af;
-  background-color: #3f3f46;
+  color: #c4b5fd;
+  background-color: rgba(43, 35, 81, 0.6);
+  text-shadow: 0 0 4px rgba(196, 181, 253, 0.4);
+}
+
+.stats-table td {
+  color: #d1d5db;
 }
 
 .stats-table tr:last-child td {
@@ -342,12 +380,12 @@ body {
 
 /* Icon Buttons */
 .icon-button {
-  background-color: transparent;
-  border: none;
+  background-color: rgba(43, 35, 81, 0.3);
+  border: 1px solid rgba(167, 139, 250, 0.2);
   padding: 3px;
   margin: 0;
   cursor: pointer;
-  color: #9ca3af;
+  color: #c4b5fd; /* Lavender */
   transition: all 0.2s ease-in-out;
   -webkit-app-region: no-drag;
   z-index: 10;
@@ -356,6 +394,8 @@ body {
   justify-content: center;
   width: 20px;
   height: 20px;
+  border-radius: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .back-button {
@@ -375,8 +415,10 @@ body {
 
 .icon-button:hover {
   color: #ffffff;
-  background: rgba(99, 102, 241, 0.2);
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+  background: rgba(67, 56, 119, 0.5);
+  box-shadow: 0 0 8px rgba(167, 139, 250, 0.4);
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.4);
+  border-color: rgba(196, 181, 253, 0.4);
 }
 
 .icon-button svg {
@@ -396,6 +438,14 @@ body {
   transform: translateX(-50%);
   margin-top: 8px;
   z-index: 20;
+  background: rgba(31, 25, 58, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 0;
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  padding: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  color: #e5e7eb;
 }
 
 /* Scrollbar Styling */
@@ -406,48 +456,70 @@ body {
 
 ::-webkit-scrollbar-track {
   background: transparent;
-  border-radius: 10px;
+  border-radius: 0;
   margin: 2px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
-  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.1);
+  background: rgba(167, 139, 250, 0.4); /* Lavender thumb */
+  border-radius: 0;
+  box-shadow: inset 0 0 6px rgba(196, 181, 253, 0.2);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(167, 139, 250, 0.6);
+  box-shadow: inset 0 0 6px rgba(196, 181, 253, 0.3);
 }
 
 /* Responsive Design */
 @media (max-width: 600px) {
   .container {
     padding: 0.5rem;
+    max-width: 280px;
   }
   
   .match-list li {
     flex-direction: column;
     align-items: flex-start;
+    padding: 6px 8px 4px;
   }
   
   .match-score {
-    margin-top: 0.5rem;
+    margin-top: 0.3rem;
+    font-size: 0.8em;
   }
   
   .stats-table {
-    font-size: 0.8rem;
+    font-size: 9px;
   }
   
   .stats-table th,
   .stats-table td {
-    padding: 0.25rem;
+    padding: 4px;
+  }
+
+  .match-detail h3 {
+    font-size: 13px;
+  }
+
+  .match-detail .score {
+    font-size: 1.3em;
   }
 }
 
-/* Icon button hover effects */
-.icon-button:hover {
-  background: rgba(99, 102, 241, 0.2);
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
-  color: white;
+/* Animation for hover effects */
+@keyframes glow {
+  0% {
+    box-shadow: 0 0 5px rgba(99, 102, 241, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 5px rgba(99, 102, 241, 0.3);
+  }
+}
+
+.match-list li:hover {
+  animation: glow 1.5s infinite;
 } 
