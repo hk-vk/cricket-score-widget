@@ -1,6 +1,0 @@
-requests
-beautifulsoup4
-Pillow
-PyQt5
-PyQt-Fluent-Widgets
-PyInstaller 
