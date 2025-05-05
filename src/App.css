@@ -1,0 +1,453 @@
+/* Global Reset and Base Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border-radius: inherit; /* Make all child elements inherit border radius */
+}
+
+/* Global Transparency Settings */
+html, body, #root {
+  background-color: transparent !important;
+  color: #d1d5db;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  border-radius: 0; /* Reset border radius for root elements */
+}
+
+body {
+  -webkit-app-region: drag;
+  font-size: 11px;
+}
+
+/* Container Style */
+.container {
+  -webkit-app-region: no-drag;
+  height: auto;
+  max-height: 100vh;
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto;
+  overflow: hidden;
+  padding: 10px;
+  
+  /* Blurry/Transparent Background */
+  background-color: rgba(24, 24, 27, 0.25);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  
+  /* Modern Styling with Rounded Corners */
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  
+  /* Layout */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Loading and Error States */
+.loading, .error {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  font-size: 1.1em;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.error {
+  color: #f87171;
+  flex-direction: column;
+}
+
+.error button {
+  margin-top: 1rem;
+  padding: 8px 16px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.error button:hover {
+  background: #b91c1c;
+}
+
+/* Match List View */
+.match-list {
+  background: transparent;
+  border-radius: 14px;
+  overflow: hidden;
+  max-height: calc(100vh - 20px);
+  display: flex;
+  flex-direction: column;
+  margin: 0 1px; /* Small margin to ensure no edge touches container */
+}
+
+.match-list h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f9fafb;
+  padding: 8px 0;
+  margin: 0 0 6px 0;
+  text-align: center;
+  background: linear-gradient(to bottom, rgba(63, 63, 70, 0.2), transparent);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  border-radius: 14px 14px 0 0;
+}
+
+.match-list ul {
+  list-style: none;
+  padding: 0 4px 0 0;
+  margin: 0;
+  overflow-y: auto;
+  flex: 1;
+  border-radius: 0 0 14px 14px;
+  overflow: hidden;
+}
+
+/* Ensure scrollbars dont break rounded corners */
+.match-list ul::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+  margin-right: 4px;
+}
+
+.match-list ul::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.match-list li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 10px 6px;
+  margin-bottom: 5px;
+  background: rgba(63, 63, 70, 0.2);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  -webkit-app-region: no-drag;
+  overflow: hidden; /* Ensure content doesn't break border radius */
+}
+
+.match-list li:last-child {
+  margin-bottom: 0;
+}
+
+.match-list li:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.25);
+  transform: translateX(2px);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
+}
+
+.match-title {
+  font-weight: 600;
+  color: #f3f4f6;
+  font-size: 0.9em;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+.match-score {
+  font-size: 0.85em;
+  color: #a0e5ff;
+  width: 100%;
+  text-align: right;
+  white-space: normal;
+  word-break: normal;
+  line-height: 1.3;
+}
+
+/* Match Detail View */
+.match-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 10px;
+  
+  /* Blurry/Transparent Background */
+  background: rgba(24, 24, 27, 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  margin: 0 1px; /* Small margin to ensure no edge touches container */
+}
+
+.match-detail h3 {
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 6px;
+  color: #f9fafb;
+}
+
+.match-detail p {
+  margin-bottom: 5px;
+  font-size: 11px;
+  color: #d1d5db;
+  text-align: center;
+}
+
+.match-detail .score {
+  font-size: 1.5em;
+  font-weight: bold;
+  text-align: center;
+  color: #f9fafb;
+  margin-bottom: 3px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+}
+
+.match-detail .opponent-score {
+  font-size: 0.95em;
+  color: #9ca3af;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.match-detail .status {
+  font-size: 0.85em;
+  color: #86efac;
+  text-align: center;
+  font-style: italic;
+  margin-bottom: 10px;
+  text-shadow: 0 0 8px rgba(134, 239, 172, 0.4);
+}
+
+.match-detail .pom {
+  text-align: center;
+  font-size: 0.85em;
+  color: #facc15;
+  margin-top: 8px;
+  text-shadow: 0 0 8px rgba(250, 204, 21, 0.4);
+}
+
+/* Minimized View */
+.match-detail.minimized {
+  padding: 10px;
+}
+
+.match-detail.minimized p {
+  font-size: 0.9em;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.match-detail.minimized .score {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+.match-detail.minimized .status {
+  font-size: 0.8em;
+}
+
+/* Table Styles */
+.table-container {
+  -webkit-app-region: no-drag;
+  flex: 0 0 auto;
+  max-height: 100px;
+  overflow-y: auto;
+  margin-bottom: 4px;
+  overflow-x: auto;
+  
+  /* Blurry/Transparent Background */
+  background: rgba(39, 39, 42, 0.3);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  overflow: hidden; /* Ensure content doesn't break border radius */
+}
+
+.table-container h4 {
+  font-size: 10px;
+  font-weight: 600;
+  margin: 0;
+  padding: 4px 8px;
+  background: linear-gradient(to right, rgba(63, 63, 70, 0.5), rgba(63, 63, 70, 0.2));
+  color: #e5e7eb;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.stats-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 10px;
+  background-color: rgba(39, 39, 42, 0.2);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.stats-table th,
+.stats-table td {
+  padding: 5px 6px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid rgba(63, 63, 70, 0.5);
+}
+
+.stats-table th {
+  font-weight: 600;
+  color: #9ca3af;
+  background-color: #3f3f46;
+}
+
+.stats-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Icon Button Group */
+.icon-button-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 100%;
+  padding: 4px;
+  margin: 0;
+  margin-bottom: 8px;
+  -webkit-app-region: no-drag;
+  border-radius: 14px;
+}
+
+/* Icon Buttons */
+.icon-button {
+  background-color: transparent;
+  border: none;
+  padding: 3px;
+  margin: 0;
+  cursor: pointer;
+  color: #9ca3af;
+  transition: all 0.2s ease-in-out;
+  -webkit-app-region: no-drag;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.back-button {
+  justify-self: start;
+}
+
+.commentary-container {
+  justify-self: center;
+  position: relative;
+  margin: 0;
+  padding: 0;
+}
+
+.minimize-button {
+  justify-self: end;
+}
+
+.icon-button:hover {
+  color: #ffffff;
+  background: rgba(99, 102, 241, 0.2);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+}
+
+.icon-button svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Commentary tooltip */
+.commentary-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  z-index: 20;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+  margin: 2px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+  .container {
+    padding: 0.5rem;
+  }
+  
+  .match-list li {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .match-score {
+    margin-top: 0.5rem;
+  }
+  
+  .stats-table {
+    font-size: 0.8rem;
+  }
+  
+  .stats-table th,
+  .stats-table td {
+    padding: 0.25rem;
+  }
+}
+
+/* Icon button hover effects */
+.icon-button:hover {
+  background: rgba(99, 102, 241, 0.2);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+  color: white;
+} 
