@@ -1,14 +1,20 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen } = require('electron');
-const path = require('node:path');
-const axios = require('axios');
-const cheerio = require('cheerio');
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen } from 'electron'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import axios from 'axios'
+import * as cheerio from 'cheerio'
+import fs from 'node:fs'
+import isDev from 'electron-is-dev'
+
+// Get __dirname equivalent in ESM
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 // --- Constants ---
 const CRICBUZZ_URL = 'https://www.cricbuzz.com/';
 const MAX_MATCHES_MENU = 10;
 const UPDATE_INTERVAL_SECONDS = 120;
 const DETAILED_UPDATE_INTERVAL_SECONDS = 5;
-const isDev = process.env.NODE_ENV !== 'production';
 
 // --- Window Size & Positioning ---
 const WINDOW_WIDTH = 280;
@@ -787,6 +793,9 @@ function createWindow() {
   const windowWidth = WINDOW_WIDTH;
   const windowHeight = 400; // Use a taller window to fit both match list and details
 
+  // In production, use a visible background color for debugging
+  const bgColor = isDev ? '#00000000' : '#1e1e1e';
+  
   mainWindow = new BrowserWindow({
     width: windowWidth,
     height: windowHeight,
@@ -796,29 +805,36 @@ function createWindow() {
     fullscreenable: false,
     resizable: false,
     movable: true,
-    transparent: true,
-    backgroundColor: '#00000000',
+    transparent: isDev,
+    backgroundColor: bgColor,
     opacity: 1.0,
-    roundedCorners: true, // Enable rounded corners for the window
-    hasShadow: true, // Re-enable shadow for depth
+    roundedCorners: true,
+    hasShadow: true,
     thickFrame: false,
     skipTaskbar: true,
     alwaysOnTop: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: join(__dirname, 'preload.mjs'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: false, // Required for ESM preload scripts
       webSecurity: !isDev,
       defaultFontFamily: {
         standard: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Open Sans, Helvetica Neue, sans-serif',
       },
-      defaultBackgroundColor: '#00000000',
-      experimentalFeatures: true
+      defaultBackgroundColor: bgColor,
+      experimentalFeatures: true,
+      devTools: true
     }
   });
 
-  // Set additional transparency
-  mainWindow.setBackgroundColor('#00000000');
+  // Set background color to match
+  mainWindow.setBackgroundColor(bgColor);
+
+  // Open DevTools in production for debugging
+  if (!isDev) {
+    mainWindow.webContents.openDevTools();
+  }
 
   // Remove any frame or borders
   mainWindow.setAutoHideMenuBar(true);
@@ -858,9 +874,12 @@ function createWindow() {
     console.log(`Loading URL for dev: ${devUrl}`);
     mainWindow.loadURL(devUrl);
   } else {
-    const prodPath = path.join(__dirname, '../dist/index.html');
-    console.log(`Loading file for prod: ${prodPath}`);
-    mainWindow.loadFile(prodPath);
+    const prodPath = join(__dirname, '../dist/index.html');
+    const prodUrl = `file://${prodPath}`;
+    console.log(`Loading production URL: ${prodUrl}`);
+    mainWindow.loadURL(prodUrl).catch(err => {
+      console.error('Failed to load production URL:', err);
+    });
   }
 
   // Emitted when the window is closed.
@@ -915,17 +934,45 @@ function createTray() {
   const iconName = 'cricket_icon.ico';
 
   if (isDev) {
-    staticIconPath = path.resolve(__dirname, '..', 'public', iconName);
+    staticIconPath = join(__dirname, '..', 'public', iconName);
   } else {
-    staticIconPath = path.resolve(app.getAppPath(), '..', 'public', iconName);
+    staticIconPath = join(app.getAppPath(), 'public', iconName);
   }
 
   console.log(`Attempting to load static tray icon from: ${staticIconPath}`); 
 
-  defaultTrayIcon = nativeImage.createFromPath(staticIconPath); // Create default icon
-  if (!defaultTrayIcon || defaultTrayIcon.isEmpty()) {
-    console.error(`Failed to load static tray icon. Please check the path: ${staticIconPath}`);
-    return; 
+  try {
+    // Check if the icon file exists
+    if (fs.existsSync(staticIconPath)) {
+      console.log(`Tray icon file exists at: ${staticIconPath}`);
+      defaultTrayIcon = nativeImage.createFromPath(staticIconPath);
+      
+      if (defaultTrayIcon.isEmpty()) {
+        console.error('Tray icon created but is empty');
+      } else {
+        console.log('Tray icon loaded successfully');
+        const size = defaultTrayIcon.getSize();
+        console.log(`Icon size: ${size.width}x${size.height}`);
+      }
+    } else {
+      console.error(`Tray icon file does not exist at: ${staticIconPath}`);
+      // Try to see what's in the directory
+      const iconDir = join(staticIconPath, '..');
+      if (fs.existsSync(iconDir)) {
+        console.log(`Files in icon directory (${iconDir}):`);
+        const files = fs.readdirSync(iconDir);
+        console.log(files);
+      } else {
+        console.error(`Icon directory does not exist: ${iconDir}`);
+      }
+      
+      // Create an empty icon as fallback
+      defaultTrayIcon = nativeImage.createEmpty();
+      console.log('Using empty icon as fallback');
+    }
+  } catch (error) {
+    console.error('Error loading tray icon:', error);
+    defaultTrayIcon = nativeImage.createEmpty();
   }
   
   tray = new Tray(defaultTrayIcon); // Use the default icon initially

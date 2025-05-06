@@ -1,7 +1,7 @@
-const { spawn, execSync } = require('child_process');
-const http = require('http');
-const path = require('path');
-const fs = require('fs');
+import { spawn } from 'child_process'
+import http from 'http'
+import { join } from 'path'
+import fs from 'fs'
 
 // Configuration
 const VITE_PORT = 5173;
