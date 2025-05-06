@@ -11,7 +11,6 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     outDir: 'dist', // Output directory for build
-    assetsDir: '.',
     emptyOutDir: true,
     cssCodeSplit: false,
   },
