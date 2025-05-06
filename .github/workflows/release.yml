@@ -19,19 +19,14 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20' # Or your preferred Node.js version
-
-    - name: Install pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 8 # Or your preferred pnpm version
-        run_install: false
+        cache: 'npm' # Add caching for npm
 
     - name: Install dependencies
-      run: pnpm install
+      run: npm install # Use npm install
       shell: pwsh # Use PowerShell on Windows runner
 
     - name: Build Electron App
-      run: pnpm dist
+      run: npm run dist # Use npm run dist
       shell: pwsh
 
     - name: Create Release and Upload Asset
