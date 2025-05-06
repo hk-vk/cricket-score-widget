@@ -9,34 +9,38 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: windows-latest # Use Windows because of winreg dependency
+    runs-on: windows-latest # Use Windows for building the NSIS installer
 
     steps:
     - name: Check out repository
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
       with:
-        python-version: '3.11' # Or your preferred Python version
+        node-version: '20' # Or your preferred Node.js version
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8 # Or your preferred pnpm version
+        run_install: false
 
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      run: pnpm install
       shell: pwsh # Use PowerShell on Windows runner
 
-    - name: Build executable with PyInstaller
-      run: pyinstaller --name CricketWidget --onefile --windowed --icon=cricket_icon.ico cricket_widget_fluent.py
+    - name: Build Electron App
+      run: pnpm dist
       shell: pwsh
 
     - name: Create Release and Upload Asset
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: commit-${{ github.sha }} # Tag release with commit SHA
-        name: Release ${{ github.sha }}
+        tag_name: v${{ github.run_number }} # Tag release with run number (e.g., v1, v2)
+        name: Release v${{ github.run_number }}
         body: |
-          Automated release for commit ${{ github.sha }}
-        files: dist/CricketWidget.exe # Path to the built executable
+          Automated release build.
+        files: release/CricketWidget Setup*.exe # Path to the built NSIS installer
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Use the default GitHub token 
