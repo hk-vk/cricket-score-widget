@@ -831,11 +831,6 @@ function createWindow() {
   // Set background color to match
   mainWindow.setBackgroundColor(bgColor);
 
-  // Open DevTools in production for debugging
-  if (!isDev) {
-    mainWindow.webContents.openDevTools();
-  }
-
   // Remove any frame or borders
   mainWindow.setAutoHideMenuBar(true);
   
