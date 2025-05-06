@@ -793,8 +793,8 @@ function createWindow() {
   const windowWidth = WINDOW_WIDTH;
   const windowHeight = 400; // Use a taller window to fit both match list and details
 
-  // In production, use a visible background color for debugging
-  const bgColor = isDev ? '#00000000' : '#1e1e1e';
+  // Set background to fully transparent for both dev and prod
+  const bgColor = '#00000000';
   
   mainWindow = new BrowserWindow({
     width: windowWidth,
@@ -805,7 +805,7 @@ function createWindow() {
     fullscreenable: false,
     resizable: false,
     movable: true,
-    transparent: isDev,
+    transparent: true, // Enable transparency for both dev and prod
     backgroundColor: bgColor,
     opacity: 1.0,
     roundedCorners: true,
