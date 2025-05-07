@@ -483,11 +483,13 @@ body {
 }
 
 .main-score {
-  font-weight: bold; /* Example */
+  font-weight: bold; /* Keep bold */
+  font-size: 1.6em; /* Increase font size for main score */
 }
 
 .opponent-score {
   color: #bbb; /* Slightly dimmer than main score example */
+  font-size: 1.0em; /* Keep opponent score at base size or adjust as needed */
 }
 
 .run-rate {
