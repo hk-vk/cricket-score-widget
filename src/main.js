@@ -495,6 +495,8 @@ async function fetchDetailedScore(url) {
       score: 'N/A', // Current batting team score or primary score line
       opponent_score: null, // Opponent score (usually from completed innings)
       status: '', // Match status (e.g., Live, Result, Stumps)
+      crr: null, // ADDED: Current Run Rate
+      rrr: null, // ADDED: Required Run Rate
       batters: [], // Array of { name, runs, balls, fours, sixes, sr, isStriker }
       bowlers: [], // Array of { name, overs, maidens, runs, wickets, eco, isCurrent }
       team1_name: null,
@@ -720,17 +722,36 @@ async function fetchDetailedScore(url) {
       result.recent_balls = recentBallsTag.text().trim();
     }
 
-    // Update Tray Tooltip Logic (remains the same)
+    // --- ADDED: Extract CRR ---
+    const crrElement = $('.cb-min-bat-rw .cb-font-12.cb-text-gray:contains("CRR:") span').last();
+    if (crrElement.length > 0) {
+      result.crr = crrElement.text().trim();
+      console.log(`Found CRR: ${result.crr}`);
+    }
+
+    // --- ADDED: Extract RRR ---
+    const rrrElement = $('.cb-min-bat-rw .cb-font-12.cb-text-gray:contains("REQ:") span').last(); // Cricbuzz uses REQ for Required Rate
+    if (rrrElement.length > 0) {
+      result.rrr = rrrElement.text().trim();
+      console.log(`Found RRR: ${result.rrr}`);
+    }
+    // --- END ADDED ---
+
+    // Update Tray Tooltip Logic (include CRR/RRR)
     let displayValue = null;
     if (result.is_complete && result.status && result.status !== 'N/A') {
       displayValue = result.status;
     } else if (result.score && result.score !== 'N/A') {
-      displayValue = result.score;
+      displayValue = `${result.score}${result.crr ? ' CRR:' + result.crr : ''}${result.rrr ? ' RRR:' + result.rrr : ''}`;
+      // Append status if it provides additional info (like 'Innings Break')
+      if (result.status && result.status !== 'N/A' && !result.status.toLowerCase().includes('live')) {
+           displayValue += ` | ${result.status}`;
+      }
     }
     selectedMatchLiveScore = displayValue;
     updateTrayTooltip(selectedMatchLiveScore); // Update tooltip only
 
-    console.log('Successfully parsed detailed score data');
+    console.log('Successfully parsed detailed score data (with CRR/RRR if available)');
     // console.log(JSON.stringify(result, null, 2)); // Optional: Log the full result for debugging
     return result;
 
