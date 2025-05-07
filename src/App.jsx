@@ -5,7 +5,7 @@ function App() {
   const [matches, setMatches] = useState([]);
   const [selectedMatchData, setSelectedMatchData] = useState(null);
   const [isMinimizedView, setIsMinimizedView] = useState(false);
-  const [loading, setLoading] = useState(true); // For initial list load
+  const [loading, setLoading] = useState(true); // For initial list load, or if list is empty
   const [matchLoading, setMatchLoading] = useState(false); // For individual match load
   const [error, setError] = useState(null);
   const [theme, setTheme] = useState('dark'); // Default theme state
@@ -29,19 +29,27 @@ function App() {
   }, [selectedMatchData]);
 
   // --- Data Fetching ---
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    console.log("Fetching initial matches...");
+  const fetchData = async (isInitialOrForcedRefresh = false) => {
+    if (isInitialOrForcedRefresh || matches.length === 0) {
+      setLoading(true); // Show full loading screen only on first load or if list is empty
+    }
+    // For background refreshes of an existing list, setLoading(true) is skipped.
+    console.log(`Fetching matches... (Initial/Forced/Empty: ${isInitialOrForcedRefresh || matches.length === 0})`);
+    setError(null); // Clear previous list errors
     try {
       const fetchedMatches = await window.electronAPI.fetchMatches();
       setMatches(fetchedMatches || []);
     } catch (err) {
       console.error("Error fetching matches:", err);
-      setError('Failed to fetch match list. Please check your internet connection.');
-      setMatches([]); // Clear matches on error
+      setError('Failed to fetch match list.');
+      if (matches.length === 0 && !isInitialOrForcedRefresh) setMatches([]); // Ensure list is empty if fetch fails and it was empty
     } finally {
-      setLoading(false);
+      if (isInitialOrForcedRefresh || matches.length === 0) {
+         // This condition for setLoading(false) should ideally mirror when setLoading(true) was called.
+         // However, matches.length might have changed due to setMatches above.
+         // So, more robustly, we use the flag or if loading was true.
+         if (loading || isInitialOrForcedRefresh) setLoading(false);
+      }
     }
   };
 
@@ -58,16 +66,11 @@ function App() {
   };
 
   const fetchCommentary = async () => {
-    const currentMatch = selectedMatchDataRef.current; // Use ref for current data
+    const currentMatch = selectedMatchDataRef.current;
     if (!currentMatch || !currentMatch.url) return;
-    
     try {
       const commentaryData = await window.electronAPI.fetchCommentary(currentMatch.url);
-      if (commentaryData && commentaryData.commentary) {
-        setCommentary(commentaryData.commentary);
-      } else {
-        setCommentary("No commentary available at the moment");
-      }
+      setCommentary(commentaryData?.commentary || "No commentary available");
     } catch (err) {
       console.error("Error fetching commentary:", err);
       setCommentary("Failed to fetch commentary");
@@ -76,133 +79,70 @@ function App() {
 
   // Force animation reset when a new event occurs
   const resetAnimation = (event) => {
-    // Clear any existing animation
-    if (eventTimeoutRef.current) {
-      clearTimeout(eventTimeoutRef.current);
-    }
-    if (overlayTimeoutRef.current) {
-      clearTimeout(overlayTimeoutRef.current);
-    }
-    
-    // Force a re-render by changing the animation key
+    if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
+    if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
     setAnimationKey(prevKey => prevKey + 1);
-    
-    // Set the new event and show overlay with a slight delay
-    setTimeout(() => {
-      setCurrentEvent(event);
-      setShowEventOverlay(true);
-    }, 50); // Small delay to ensure proper sequencing
-    
-    // Hide overlay after animation
-    overlayTimeoutRef.current = setTimeout(() => {
-      setShowEventOverlay(false);
-    }, 1500); // Match the CSS animation duration
-    
-    // Clear animation class after full duration
-    eventTimeoutRef.current = setTimeout(() => {
-      setCurrentEvent(null);
-    }, 2000); // Slightly longer than the longest animation
+    setTimeout(() => { setCurrentEvent(event); setShowEventOverlay(true); }, 50);
+    overlayTimeoutRef.current = setTimeout(() => setShowEventOverlay(false), 1500);
+    eventTimeoutRef.current = setTimeout(() => setCurrentEvent(null), 2000);
   };
 
   // Handle match data updates with event detection
   const handleMatchDataUpdate = (details) => {
     console.log('[App.jsx] Received details in handleMatchDataUpdate:', details);
-    setSelectedMatchData(details); // Update UI state first
-
+    setSelectedMatchData(details);
     if (details?.lastEvent) {
-      let eventInstanceId = null;
-      if (details.deliveryIdentifier && details.deliveryIdentifier.trim() !== '') {
-        eventInstanceId = `${details.lastEvent}-${details.deliveryIdentifier}`;
-      } else {
-        eventInstanceId = `${details.lastEvent}-${details.latestCommentary?.substring(0, 30)}`;
-      }
+      const eventInstanceId = `${details.lastEvent}-${details.deliveryIdentifier || details.latestCommentary?.substring(0, 30)}`;
       console.log(`[App.jsx] Event check: ID='${eventInstanceId}', PrevProcessed='${processedEventInstanceRef.current}', isMatchJustSelected='${isMatchJustSelected.current}'`);
-      
       if (isMatchJustSelected.current) {
-        // This is the first event-bearing update since match selection.
-        // Record it as processed to avoid animating it if it's a stale event from before selection,
-        // or to set the baseline if it's genuinely the first event.
-        // Do not animate.
-        console.log(`[App.jsx] First event-bearing update for new/re-selected match. Storing ID, suppressing animation for: ${eventInstanceId}`);
+        console.log(`[App.jsx] First event-bearing update. Storing ID, suppressing animation: ${eventInstanceId}`);
         processedEventInstanceRef.current = eventInstanceId;
-        isMatchJustSelected.current = false; // Reset the flag, subsequent events will be animated if new.
+        isMatchJustSelected.current = false;
+      } else if (eventInstanceId !== processedEventInstanceRef.current) {
+        console.log(`[App.jsx] New unique event: ${eventInstanceId}. Triggering animation.`);
+        resetAnimation(details.lastEvent);
+        processedEventInstanceRef.current = eventInstanceId;
       } else {
-        // Not the first update post-selection, apply normal animation logic.
-        if (eventInstanceId !== processedEventInstanceRef.current) {
-          console.log(`[App.jsx] New unique event detected: ${eventInstanceId}. Triggering animation.`);
-          resetAnimation(details.lastEvent);
-          processedEventInstanceRef.current = eventInstanceId; // Record this new event as processed.
-        } else {
-          console.log(`[App.jsx] Duplicate event instance detected (already processed or currently animating): ${eventInstanceId}. Animation suppressed.`);
-        }
+        console.log(`[App.jsx] Duplicate event: ${eventInstanceId}. Animation suppressed.`);
       }
     } else {
-      // No event in this update.
-      // isMatchJustSelected.current might still be true if the first few updates had no event.
-      // We do NOT change processedEventInstanceRef.current here. It should hold the ID of the last animated event.
-      console.log(`[App.jsx] Update received with no event. isMatchJustSelected='${isMatchJustSelected.current}'. processedEventInstanceRef='${processedEventInstanceRef.current}' (remains unchanged).`);
+      console.log(`[App.jsx] Update with no event. isMatchJustSelected='${isMatchJustSelected.current}'. processedEventInstanceRef='${processedEventInstanceRef.current}' (remains).`);
     }
   };
 
-  useEffect(() => {
-    if (currentEvent) {
-      console.log(`[App.jsx] currentEvent state updated, CSS class should be applied: event-${currentEvent}`);
-    }
-  }, [currentEvent]);
+  useEffect(() => { if (currentEvent) console.log(`[App.jsx] currentEvent state updated: event-${currentEvent}`); }, [currentEvent]);
 
   // Main useEffect for setting up listeners and initial data fetch
   useEffect(() => {
-    fetchData(); // Initial fetch for the match list
-
-    const removeRefreshListener = window.electronAPI.onRefreshData(() => {
-      console.log('Refresh data signal received from main.');
-      // Only refresh list if no match is currently selected
-      if (!selectedMatchDataRef.current) { 
-        console.log('Refreshing list data as no match is selected.');
-        fetchData();
-      }
-    });
-
-    const removeToggleListener = window.electronAPI.onToggleView(() => {
-      console.log('Toggle view triggered');
-      setIsMinimizedView(prevMinimized => {
-        const newMinimizedState = !prevMinimized;
-        window.electronAPI.resizeWindow(newMinimizedState);
-        return newMinimizedState;
-      });
-    });
-    
-    const removeThemeListener = window.electronAPI.onSetTheme((newTheme) => {
-      console.log('Theme received in renderer:', newTheme);
-      setTheme(newTheme);
-    });
-    
-    const removeDetailsUpdateListener = window.electronAPI.onUpdateSelectedDetails((details) => {
-      // Use the ref to get the current selected match URL
-      const currentMatch = selectedMatchDataRef.current;
-      if (details && currentMatch && details.url === currentMatch.url) {
-        console.log('[App.jsx] onUpdateSelectedDetails: Details match current selection, calling handleMatchDataUpdate.');
-        handleMatchDataUpdate(details);
-      } else {
-        console.log('[App.jsx] onUpdateSelectedDetails: Details do NOT match or no match selected. Ignoring update.');
-      }
-    });
-
+    fetchData(true); // Initial fetch for the match list, force loading screen
+    const listeners = [
+      window.electronAPI.onRefreshData(() => {
+        console.log('Refresh data signal received.');
+        if (!selectedMatchDataRef.current) {
+          console.log('Refreshing list data (no match selected).');
+          fetchData(); // Not initial, will use background refresh logic
+        }
+      }),
+      window.electronAPI.onToggleView(() => {
+        console.log('Toggle view triggered');
+        setIsMinimizedView(prev => { const newState = !prev; window.electronAPI.resizeWindow(newState); return newState; });
+      }),
+      window.electronAPI.onSetTheme(setTheme),
+      window.electronAPI.onUpdateSelectedDetails((details) => {
+        const currentMatch = selectedMatchDataRef.current;
+        if (details && currentMatch && details.url === currentMatch.url) {
+          handleMatchDataUpdate(details);
+        }
+      })
+    ];
     return () => {
       if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
       if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
-      removeRefreshListener();
-      removeToggleListener();
-      removeThemeListener();
-      removeDetailsUpdateListener();
+      listeners.forEach(removeListener => removeListener());
     };
-  }, []); // Empty dependency array: runs once on mount and cleans up on unmount
+  }, []);
 
-  useEffect(() => {
-    if (showCommentary) {
-      fetchCommentary();
-    }
-  }, [showCommentary]); // Depends only on showCommentary, fetchCommentary uses ref for selectedMatchData
+  useEffect(() => { if (showCommentary) fetchCommentary(); }, [showCommentary]); // Depends only on showCommentary, fetchCommentary uses ref for selectedMatchData
 
   // Cleanup timeouts on unmount (already covered by main useEffect, but good practice if separated)
   // useEffect(() => {
@@ -213,52 +153,51 @@ function App() {
   // }, []);
 
   // Get the overlay text based on the event
-  const getOverlayText = (event) => {
-    switch(event) {
-      case 'four': return 'FOUR!';
-      case 'six': return 'SIX!';
-      case 'wicket': return 'WICKET!';
-      default: return '';
-    }
-  };
+  const getOverlayText = (event) => ({ four: 'FOUR!', six: 'SIX!', wicket: 'WICKET!' }[event] || '');
 
   // --- Handlers ---
   const handleMatchSelect = async (url) => {
-    console.log("[App.jsx] Match selected (or re-selected):", url);
-    isMatchJustSelected.current = true; // Mark that a match selection is in progress
-    processedEventInstanceRef.current = null; // Reset for the new match's event logic
+    console.log("[App.jsx] Match selected:", url);
+    isMatchJustSelected.current = true;
+    processedEventInstanceRef.current = null;
     setShowCommentary(false);
-    setMatchLoading(true); // Show loading state for this specific match
-    setError(null); // Clear previous errors
-
-    window.electronAPI.selectMatch(url); // Inform main process of selection
-
+    setMatchLoading(true);
+    setError(null);
+    window.electronAPI.selectMatch(url);
     try {
-      console.log("[App.jsx] Fetching initial details for selected match:", url);
       const initialDetails = await window.electronAPI.fetchDetailedScore(url);
       if (initialDetails) {
-        // Main process sends lastEvent:null for this initial fetch via invoke.
-        // So, setSelectedMatchData here won't trigger animation through handleMatchDataUpdate's event logic.
         setSelectedMatchData(initialDetails);
-        console.log("[App.jsx] Initial details set for match selection. LastEvent from main (should be null):", initialDetails.lastEvent);
-        // isMatchJustSelected.current remains true; it will be reset by the first *event-bearing* periodic update.
+        console.log("[App.jsx] Initial details set. LastEvent (should be null):", initialDetails.lastEvent);
       } else {
-        console.error("Error: No initial details returned for selected match.", url);
-        setError('Failed to load match details. Please try again or select another match.');
-        setSelectedMatchData(null); // Clear selection if fetch fails
+        setError('Failed to load match details. Try again.'); setSelectedMatchData(null);
       }
     } catch (err) {
-      console.error("Error fetching initial details in handleMatchSelect:", err);
-      setError('Failed to fetch match details. An error occurred.');
-      setSelectedMatchData(null);
+      console.error("Error in handleMatchSelect:", err); setError('Error fetching match details.'); setSelectedMatchData(null);
     } finally {
       setMatchLoading(false);
     }
   };
 
-  const toggleCommentary = () => {
-    setShowCommentary(!showCommentary);
+  const handleBackToList = () => {
+    console.log('[App.jsx] Back button clicked. Transitioning to list view.');
+    window.electronAPI.selectMatch(null); // Inform main process
+    setSelectedMatchData(null);         // Trigger UI change to list
+    setError(null);                     // Clear any errors
+    
+    // Reset states specific to the detailed view
+    processedEventInstanceRef.current = null;
+    isMatchJustSelected.current = false; // Reset for next selection
+    setCommentary('');
+    setShowCommentary(false);
+    setCurrentEvent(null); // Clear animation state
+    if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
+    if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
+    setShowEventOverlay(false);
+    // setMatchLoading(false); // Should already be false or not relevant here
   };
+
+  const toggleCommentary = () => setShowCommentary(!showCommentary);
 
   const togglePin = () => {
     console.log(`[Pin Debug] Before toggle: isPinned = ${isPinned}`);
@@ -345,11 +284,11 @@ function App() {
     return <div className="container loading"><p>Loading matches...</p></div>;
   }
 
-  if (error && !selectedMatchData) { // Show list-level error only if no match is selected
+  if (error && !selectedMatchData && matches.length === 0) { // Show list-level error only if no match is selected and list is empty
     return (
       <div className="container error">
         <p>Error: {error}</p>
-        <button onClick={() => { setError(null); fetchData();}}>Retry List</button>
+        <button onClick={() => fetchData(true)}>Retry List</button>
       </div>
     );
   }
@@ -360,8 +299,8 @@ function App() {
         // Match List View
         <div className="match-list">
           <h2>Live Matches</h2>
-          {error && <p className="error-message">List Error: {error}</p>} {/* Show error message for list if it persists */}
-          <ul style={{ maxHeight: 'calc(100% - 60px)', overflowY: 'auto' }}>
+          {error && <p className="error-message">List Error: {error} (Retrying in background)</p>} {/* Show error message for list if it persists */}
+          <ul style={{ maxHeight: 'calc(100% - 60px - (error ? 20px : 0px))', overflowY: 'auto' }}>
             {matches.length > 0 ? (
               matches.map((match) => (
                 <li key={match.url} onClick={() => handleMatchSelect(match.url)}>
@@ -379,7 +318,7 @@ function App() {
       ) : error ? ( // Display error within the match view context if error occurred while loading specific match
          <div className="match-detail error">
             <p>Error loading match: {error}</p>
-            <button onClick={() => { setError(null); setSelectedMatchData(null); fetchData(); /* Go back to list & refetch */ }}>Back to List</button>
+            <button onClick={handleBackToList}>Back to List</button>
          </div>
       ) : (
         // Detail View (minimized or full) with event overlay
@@ -439,7 +378,7 @@ function App() {
           {/* Icon Button Group */}
           <div className="icon-button-group">
             {/* Back button (left) */}
-            <button className="icon-button back-button" onClick={() => { setSelectedMatchData(null); processedEventInstanceRef.current = null; isMatchJustSelected.current = false; /* Clear flag when going back */ }} title="Back to list">
+            <button className="icon-button back-button" onClick={handleBackToList} title="Back to list">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
