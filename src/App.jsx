@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 function App() {
@@ -21,6 +21,12 @@ function App() {
   const overlayTimeoutRef = useRef(null);
   const processedEventInstanceRef = useRef(null); // Ref to store the last processed event instance
   const isMatchJustSelected = useRef(false); // Ref to track if a match was just selected
+
+  // Ref to hold the current selectedMatchData for use in listeners
+  const selectedMatchDataRef = useRef(null);
+  useEffect(() => {
+    selectedMatchDataRef.current = selectedMatchData;
+  }, [selectedMatchData]);
 
   // --- Data Fetching ---
   const fetchData = async () => {
@@ -52,10 +58,11 @@ function App() {
   };
 
   const fetchCommentary = async () => {
-    if (!selectedMatchData || !selectedMatchData.url) return;
+    const currentMatch = selectedMatchDataRef.current; // Use ref for current data
+    if (!currentMatch || !currentMatch.url) return;
     
     try {
-      const commentaryData = await window.electronAPI.fetchCommentary(selectedMatchData.url);
+      const commentaryData = await window.electronAPI.fetchCommentary(currentMatch.url);
       if (commentaryData && commentaryData.commentary) {
         setCommentary(commentaryData.commentary);
       } else {
@@ -141,13 +148,14 @@ function App() {
     }
   }, [currentEvent]);
 
-  // --- Effects ---
+  // Main useEffect for setting up listeners and initial data fetch
   useEffect(() => {
-    fetchData(); // Initial fetch
+    fetchData(); // Initial fetch for the match list
 
     const removeRefreshListener = window.electronAPI.onRefreshData(() => {
       console.log('Refresh data signal received from main.');
-      if (!selectedMatchData) {
+      // Only refresh list if no match is currently selected
+      if (!selectedMatchDataRef.current) { 
         console.log('Refreshing list data as no match is selected.');
         fetchData();
       }
@@ -161,45 +169,46 @@ function App() {
         return newMinimizedState;
       });
     });
-
+    
     const removeThemeListener = window.electronAPI.onSetTheme((newTheme) => {
       console.log('Theme received in renderer:', newTheme);
       setTheme(newTheme);
     });
     
     const removeDetailsUpdateListener = window.electronAPI.onUpdateSelectedDetails((details) => {
-      if (details && selectedMatchData && details.url === selectedMatchData.url) {
+      // Use the ref to get the current selected match URL
+      const currentMatch = selectedMatchDataRef.current;
+      if (details && currentMatch && details.url === currentMatch.url) {
+        console.log('[App.jsx] onUpdateSelectedDetails: Details match current selection, calling handleMatchDataUpdate.');
         handleMatchDataUpdate(details);
+      } else {
+        console.log('[App.jsx] onUpdateSelectedDetails: Details do NOT match or no match selected. Ignoring update.');
       }
     });
 
     return () => {
-      if (eventTimeoutRef.current) {
-        clearTimeout(eventTimeoutRef.current);
-      }
-      if (overlayTimeoutRef.current) {
-        clearTimeout(overlayTimeoutRef.current);
-      }
+      if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
+      if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
       removeRefreshListener();
       removeToggleListener();
       removeThemeListener();
       removeDetailsUpdateListener();
     };
-  }, [selectedMatchData]); // Dependency array includes selectedMatchData to re-subscribe if it changes
+  }, []); // Empty dependency array: runs once on mount and cleans up on unmount
 
   useEffect(() => {
     if (showCommentary) {
       fetchCommentary();
     }
-  }, [showCommentary, selectedMatchData?.url]);
+  }, [showCommentary]); // Depends only on showCommentary, fetchCommentary uses ref for selectedMatchData
 
-  // Cleanup timeouts on unmount
-  useEffect(() => {
-    return () => {
-      if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
-      if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
-    };
-  }, []);
+  // Cleanup timeouts on unmount (already covered by main useEffect, but good practice if separated)
+  // useEffect(() => {
+  //   return () => {
+  //     if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
+  //     if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
+  //   };
+  // }, []);
 
   // Get the overlay text based on the event
   const getOverlayText = (event) => {
@@ -334,22 +343,22 @@ function App() {
     return <div className="container loading"><p>Loading matches...</p></div>;
   }
 
-  if (error) {
+  if (error && !selectedMatchData) { // Show list-level error only if no match is selected
     return (
       <div className="container error">
         <p>Error: {error}</p>
         <button onClick={() => { setError(null); fetchData();}}>Retry List</button>
-        {selectedMatchData && <button onClick={() => { setError(null); setSelectedMatchData(null); }}>Back to List</button>}
       </div>
     );
   }
 
   return (
     <div className={`container ${theme}`}>
-      {!selectedMatchData ? (
+      {!selectedMatchDataRef.current ? (
         // Match List View
         <div className="match-list">
           <h2>Live Matches</h2>
+          {error && <p className="error-message">List Error: {error}</p>} {/* Show error message for list if it persists */}
           <ul style={{ maxHeight: 'calc(100% - 60px)', overflowY: 'auto' }}>
             {matches.length > 0 ? (
               matches.map((match) => (
@@ -359,15 +368,17 @@ function App() {
                 </li>
               ))
             ) : (
-              <>
               <li>No live matches found.</li>
-              {/* Placeholder items... */}
-              </>
             )}
           </ul>
         </div>
       ) : matchLoading ? ( // Loading state for individual match
         <div className="container loading"><p>Loading match details...</p></div>
+      ) : error ? ( // Display error within the match view context if error occurred while loading specific match
+         <div className="match-detail error">
+            <p>Error loading match: {error}</p>
+            <button onClick={() => { setError(null); setSelectedMatchData(null); fetchData(); /* Go back to list & refetch */ }}>Back to List</button>
+         </div>
       ) : (
         // Detail View (minimized or full) with event overlay
         <React.Fragment>
@@ -417,8 +428,8 @@ function App() {
             </button>
           </div>
           {/* Remove title, keep only score and status */}
-          <p className="mini-score">{selectedMatchData.score} {selectedMatchData.opponent_score ? `| ${selectedMatchData.opponent_score}` : ''}</p>
-          <p className="mini-status">{selectedMatchData.status}</p>
+          <p className="mini-score">{selectedMatchDataRef.current.score} {selectedMatchDataRef.current.opponent_score ? `| ${selectedMatchDataRef.current.opponent_score}` : ''}</p>
+          <p className="mini-status">{selectedMatchDataRef.current.status}</p>
         </div>
       ) : (
         // Full Detail View
@@ -467,33 +478,33 @@ function App() {
           </div>
 
               <div className="match-header">
-          <h3>{selectedMatchData.title}</h3>
+          <h3>{selectedMatchDataRef.current.title}</h3>
                 {/* Score Line with RRR on left, Score in center, CRR on right */}
                 <p className="score-line">
-                  {selectedMatchData.rrr ? (
-                    <span className="run-rate rrr">RRR: {selectedMatchData.rrr}</span>
+                  {selectedMatchDataRef.current.rrr ? (
+                    <span className="run-rate rrr">RRR: {selectedMatchDataRef.current.rrr}</span>
                   ) : <span className="run-rate rrr">&nbsp;</span>}
-                  <span className="main-score">{selectedMatchData.score}</span>
-                  {selectedMatchData.crr ? (
-                    <span className="run-rate crr">CRR: {selectedMatchData.crr}</span>
+                  <span className="main-score">{selectedMatchDataRef.current.score}</span>
+                  {selectedMatchDataRef.current.crr ? (
+                    <span className="run-rate crr">CRR: {selectedMatchDataRef.current.crr}</span>
                   ) : <span className="run-rate crr">&nbsp;</span>}
-                  {selectedMatchData.opponent_score && (
-                    <div className="opponent-score">| {selectedMatchData.opponent_score}</div>
+                  {selectedMatchDataRef.current.opponent_score && (
+                    <div className="opponent-score">| {selectedMatchDataRef.current.opponent_score}</div>
                   )}
                 </p>
-          <p className="status">{selectedMatchData.status}</p>
-                {selectedMatchData.latestCommentary && (
+          <p className="status">{selectedMatchDataRef.current.status}</p>
+                {selectedMatchDataRef.current.latestCommentary && (
                   <p className="latest-commentary">
-                    {selectedMatchData.latestCommentary}
+                    {selectedMatchDataRef.current.latestCommentary}
                   </p>
                 )}
               </div>
           
-          <BattersTable batters={selectedMatchData.batters} />
-          <BowlersTable bowlers={selectedMatchData.bowlers} />
+          <BattersTable batters={selectedMatchDataRef.current?.batters} />
+          <BowlersTable bowlers={selectedMatchDataRef.current?.bowlers} />
           
-          {selectedMatchData.is_complete && selectedMatchData.pom && (
-            <p className="pom">POM: {selectedMatchData.pom}</p>
+          {selectedMatchDataRef.current?.is_complete && selectedMatchDataRef.current?.pom && (
+            <p className="pom">POM: {selectedMatchDataRef.current.pom}</p>
           )}
         </div>
           )}
