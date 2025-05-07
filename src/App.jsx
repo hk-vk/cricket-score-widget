@@ -180,21 +180,33 @@ function App() {
   };
 
   const handleBackToList = () => {
-    console.log('[App.jsx] Back button clicked. Transitioning to list view.');
-    window.electronAPI.selectMatch(null); // Inform main process
-    setSelectedMatchData(null);         // Trigger UI change to list
-    setError(null);                     // Clear any errors
+    console.log('[App.jsx] Back button clicked. Prioritizing UI transition to list view.');
     
-    // Reset states specific to the detailed view
+    // 1. Immediately trigger UI change to show the match list.
+    //    This should use the already cached `matches` state.
+    setSelectedMatchData(null); 
+    //    selectedMatchDataRef will update in its own useEffect.
+
+    // 2. Clear any errors that might have been set from the detail view.
+    setError(null); 
+
+    // 3. Inform the main process that no match is selected.
+    //    This can happen after the UI state update.
+    window.electronAPI.selectMatch(null);
+    
+    // 4. Reset other states specific to the detailed view.
+    //    These are less critical for the immediate UI transition back to the list.
+    console.log('[App.jsx] Clearing detail-specific states post-navigation.');
     processedEventInstanceRef.current = null;
-    isMatchJustSelected.current = false; // Reset for next selection
+    isMatchJustSelected.current = false; 
     setCommentary('');
     setShowCommentary(false);
-    setCurrentEvent(null); // Clear animation state
+    setCurrentEvent(null); 
     if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
     if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
     setShowEventOverlay(false);
-    // setMatchLoading(false); // Should already be false or not relevant here
+    // setMatchLoading(false); // Ensure this is false if it was somehow true
+    if (matchLoading) setMatchLoading(false);
   };
 
   const toggleCommentary = () => setShowCommentary(!showCommentary);
@@ -295,30 +307,31 @@ function App() {
 
   return (
     <div className={`container ${theme}`}>
-      {!selectedMatchDataRef.current ? (
-        // Match List View
+      {/* Conditional rendering: 
+          - If `loading` is true (initial app load), show full loading.
+          - Else if `selectedMatchDataRef.current` is null (and not initial loading), show match list.
+          - Else if `matchLoading` is true, show match detail loading.
+          - Else if `error` is set for a specific match, show match error view.
+          - Else, show the detailed match view.
+      */}
+      {loading ? (
+        <div className="container loading"><p>Loading matches...</p></div>
+      ) : !selectedMatchDataRef.current ? (
         <div className="match-list">
           <h2>Live Matches</h2>
-          {error && <p className="error-message">List Error: {error} (Retrying in background)</p>} {/* Show error message for list if it persists */}
-          <ul style={{ maxHeight: 'calc(100% - 60px - (error ? 20px : 0px))', overflowY: 'auto' }}>
-            {matches.length > 0 ? (
-              matches.map((match) => (
-                <li key={match.url} onClick={() => handleMatchSelect(match.url)}>
-                  <span className="match-title">{match.title}</span>
-                  <span className="match-score">{match.score}</span>
-                </li>
-              ))
-            ) : (
-              <li>No live matches found.</li>
-            )}
+          {error && <p className="error-message">List Error: {error} (Retrying in background)</p>} 
+          <ul style={{ maxHeight: `calc(100% - 60px - ${error ? '20px' : '0px'})`, overflowY: 'auto' }}>
+            {matches.length > 0 ? matches.map(match => (
+              <li key={match.url} onClick={() => handleMatchSelect(match.url)}><span className="match-title">{match.title}</span><span className="match-score">{match.score}</span></li>
+            )) : <li>No live matches found.</li>}
           </ul>
         </div>
-      ) : matchLoading ? ( // Loading state for individual match
+      ) : matchLoading ? (
         <div className="container loading"><p>Loading match details...</p></div>
-      ) : error ? ( // Display error within the match view context if error occurred while loading specific match
+      ) : error ? (
          <div className="match-detail error">
             <p>Error loading match: {error}</p>
-            <button onClick={handleBackToList}>Back to List</button>
+            <button onClick={handleBackToList}>Back to List</button> 
          </div>
       ) : (
         // Detail View (minimized or full) with event overlay
