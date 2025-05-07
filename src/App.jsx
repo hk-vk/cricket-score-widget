@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import './App.css';
 
 function App() {
@@ -11,6 +11,14 @@ function App() {
   const [commentary, setCommentary] = useState('');
   const [showCommentary, setShowCommentary] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
+  const [currentEvent, setCurrentEvent] = useState(null);
+  const [animationKey, setAnimationKey] = useState(0); // Add animation key for forced re-render
+  const [showEventOverlay, setShowEventOverlay] = useState(false);
+
+  // Event animation timeout ref
+  const eventTimeoutRef = useRef(null);
+  const overlayTimeoutRef = useRef(null);
+  const processedEventInstanceRef = useRef(null); // Ref to store the last processed event instance
 
   // --- Data Fetching ---
   const fetchData = async () => {
@@ -57,6 +65,74 @@ function App() {
     }
   };
 
+  // Force animation reset when a new event occurs
+  const resetAnimation = (event) => {
+    // Clear any existing animation
+    if (eventTimeoutRef.current) {
+      clearTimeout(eventTimeoutRef.current);
+    }
+    if (overlayTimeoutRef.current) {
+      clearTimeout(overlayTimeoutRef.current);
+    }
+    
+    // Force a re-render by changing the animation key
+    setAnimationKey(prevKey => prevKey + 1);
+    
+    // Set the new event and show overlay with a slight delay
+    setTimeout(() => {
+      setCurrentEvent(event);
+      setShowEventOverlay(true);
+    }, 50); // Small delay to ensure proper sequencing
+    
+    // Hide overlay after animation
+    overlayTimeoutRef.current = setTimeout(() => {
+      setShowEventOverlay(false);
+    }, 1500); // Match the CSS animation duration
+    
+    // Clear animation class after full duration
+    eventTimeoutRef.current = setTimeout(() => {
+      setCurrentEvent(null);
+    }, 2000); // Slightly longer than the longest animation
+  };
+
+  // Handle match data updates with event detection
+  const handleMatchDataUpdate = (details) => {
+    console.log('[App.jsx] Received details in handleMatchDataUpdate:', details);
+    setSelectedMatchData(details); // Update match data first
+
+    if (details?.lastEvent) {
+      let eventInstanceId = null;
+      if (details.deliveryIdentifier && details.deliveryIdentifier.trim() !== '') {
+        eventInstanceId = `${details.lastEvent}-${details.deliveryIdentifier}`;
+      } else {
+        // Fallback if deliveryIdentifier is not available
+        eventInstanceId = `${details.lastEvent}-${details.latestCommentary?.substring(0, 30)}`;
+      }
+
+      console.log(`[App.jsx] Current event instance: ${eventInstanceId}, Previously processed: ${processedEventInstanceRef.current}`);
+
+      if (eventInstanceId !== processedEventInstanceRef.current) {
+        console.log(`[App.jsx] New unique event detected: ${eventInstanceId}. Triggering animation.`);
+        resetAnimation(details.lastEvent);
+        processedEventInstanceRef.current = eventInstanceId;
+      } else {
+        console.log(`[App.jsx] Duplicate event instance detected: ${eventInstanceId}. Animation suppressed.`);
+      }
+    } else {
+      // If there's no current event, clear the processed event ref
+      if (processedEventInstanceRef.current !== null) {
+        console.log('[App.jsx] No active event. Clearing processedEventInstanceRef.');
+        processedEventInstanceRef.current = null;
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (currentEvent) {
+      console.log(`[App.jsx] currentEvent state updated, CSS class should be applied: event-${currentEvent}`);
+    }
+  }, [currentEvent]);
+
   // --- Effects ---
   useEffect(() => {
     fetchData(); // Initial fetch
@@ -72,6 +148,7 @@ function App() {
     const removeToggleListener = window.electronAPI.onToggleView(() => {
       console.log('Toggle view triggered');
       setIsMinimizedView(prev => !prev);
+      window.electronAPI.resizeWindow(!isMinimizedView); // Resize window when toggling view
     });
 
     const removeThemeListener = window.electronAPI.onSetTheme((newTheme) => {
@@ -81,18 +158,23 @@ function App() {
     
     const removeDetailsUpdateListener = window.electronAPI.onUpdateSelectedDetails((details) => {
       if (details && selectedMatchData && details.url === selectedMatchData.url) {
-          console.log('Received updated details from main process', details);
-          setSelectedMatchData(details);
+        handleMatchDataUpdate(details);
       }
     });
 
     return () => {
+      if (eventTimeoutRef.current) {
+        clearTimeout(eventTimeoutRef.current);
+      }
+      if (overlayTimeoutRef.current) {
+        clearTimeout(overlayTimeoutRef.current);
+      }
       removeRefreshListener();
       removeToggleListener();
       removeThemeListener();
       removeDetailsUpdateListener();
     };
-  }, [selectedMatchData]);
+  }, [selectedMatchData]); // Dependency array includes selectedMatchData to re-subscribe if it changes
 
   useEffect(() => {
     if (showCommentary) {
@@ -100,12 +182,31 @@ function App() {
     }
   }, [showCommentary, selectedMatchData?.url]);
 
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
+      if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
+    };
+  }, []);
+
+  // Get the overlay text based on the event
+  const getOverlayText = (event) => {
+    switch(event) {
+      case 'four': return 'FOUR!';
+      case 'six': return 'SIX!';
+      case 'wicket': return 'WICKET!';
+      default: return '';
+    }
+  };
+
   // --- Handlers ---
   const handleMatchSelect = (url) => {
     console.log("Match selected:", url);
     window.electronAPI.selectMatch(url); // Tell main process
     fetchDetails(url); // Fetch details immediately
     setShowCommentary(false);
+    processedEventInstanceRef.current = null; // Reset processed event when changing matches
   };
 
   const toggleCommentary = () => {
@@ -113,7 +214,16 @@ function App() {
   };
 
   const togglePin = () => {
-    setIsPinned(!isPinned);
+    console.log(`[Pin Debug] Before toggle: isPinned = ${isPinned}`);
+    const newPinnedState = !isPinned;
+    console.log(`[Pin Debug] Setting new pinned state to: ${newPinnedState}`);
+    setIsPinned(newPinnedState);
+    
+    // Try to call the IPC method with a short delay to ensure state is updated
+    setTimeout(() => {
+      console.log(`[Pin Debug] Calling IPC setAlwaysOnTop with: ${newPinnedState}`);
+      window.electronAPI.setAlwaysOnTop(newPinnedState);
+    }, 10);
   };
 
   // --- Table Components ---
@@ -215,20 +325,63 @@ function App() {
             )}
           </ul>
         </div>
-      ) : isMinimizedView ? (
+      ) : (
+        // Detail View (minimized or full) with event overlay
+        <React.Fragment>
+          {/* Event Overlay */}
+          {showEventOverlay && currentEvent && (
+            <div key={`overlay-${animationKey}`} className={`event-overlay event-${currentEvent}-overlay`}>
+              <span className="event-text">{getOverlayText(currentEvent)}</span>
+            </div>
+          )}
+          
+          {isMinimizedView ? (
         // Minimized Detail View
-        <div className="match-detail minimized">
-          <p>{selectedMatchData.title}</p>
-          <p>{selectedMatchData.score} {selectedMatchData.opponent_score ? `| ${selectedMatchData.opponent_score}` : ''}</p>
-          <p>{selectedMatchData.status}</p>
+            <div key={`min-${animationKey}`} className={`match-detail minimized ${currentEvent ? `event-${currentEvent}` : ''}`}>
+          <div className="minimized-header">
+            {/* Add expand button */}
+            <button 
+              className="icon-button expand-button" 
+              onClick={() => {
+                console.log("[Resize Debug] Expanding view");
+                setIsMinimizedView(false);
+                window.electronAPI.resizeWindow(false); // Resize window when expanding
+              }}
+              title="Expand view">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 6v12m-6-6h12"></path>
+              </svg>
+            </button>
+            
+            {/* Pin/Unpin button for minimized view */}
+            <button 
+              className="icon-button pin-button" 
+              onClick={togglePin} 
+              title={isPinned ? "Unpin window" : "Pin window (Always on Top)"}
+            >
+              {isPinned ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="2" y1="2" x2="22" y2="22"></line>
+                  <path d="M14.5 10.5c-1.31.68-2.87.5-4.05-.17l-5.58 5.58c-1.56 1.56-1.56 4.09 0 5.66.78.78 1.8 1.17 2.83 1.17s2.05-.39 2.83-1.17l5.58-5.58c.68-1.18.85-2.74.17-4.05M18 12l2-2 1-1c.63-.63.63-1.7 0-2.34l-2.34-2.34c-.63-.63-1.7-.63-2.34 0l-1 1-2 2M7.5 2.5l1 1M14 8.5c.78.78 1.17 1.8 1.17 2.83 0 .71-.14 1.4-.42 2.02"></path>
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14.5 10.5c-1.31.68-2.87.5-4.05-.17l-5.58 5.58c-1.56 1.56-1.56 4.09 0 5.66.78.78 1.8 1.17 2.83 1.17s2.05-.39 2.83-1.17l5.58-5.58c.68-1.18.85-2.74.17-4.05M18 12l2-2 1-1c.63-.63.63-1.7 0-2.34l-2.34-2.34c-.63-.63-1.7-.63-2.34 0l-1 1-2 2M7.5 2.5l1 1M14 8.5c.78.78 1.17 1.8 1.17 2.83 0 1.02-.39 2.05-1.17 2.83"></path>
+                </svg>
+              )}
+            </button>
+          </div>
+          {/* Remove title, keep only score and status */}
+          <p className="mini-score">{selectedMatchData.score} {selectedMatchData.opponent_score ? `| ${selectedMatchData.opponent_score}` : ''}</p>
+          <p className="mini-status">{selectedMatchData.status}</p>
         </div>
       ) : (
         // Full Detail View
-        <div className="match-detail">
+            <div key={`full-${animationKey}`} className={`match-detail ${currentEvent ? `event-${currentEvent}` : ''}`}>
           {/* Icon Button Group */}
           <div className="icon-button-group">
             {/* Back button (left) */}
-            <button className="icon-button back-button" onClick={() => setSelectedMatchData(null)} title="Back to list">
+            <button className="icon-button back-button" onClick={() => { setSelectedMatchData(null); processedEventInstanceRef.current = null; }} title="Back to list">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
@@ -244,53 +397,51 @@ function App() {
                 // Unpin Icon (e.g., pin with slash)
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="2" y1="2" x2="22" y2="22"></line>
-                  <path d="M14.5 10.5c-1.31.68-2.87.5-4.05-.17l-5.58 5.58c-1.56 1.56-1.56 4.09 0 5.66.78.78 1.8 1.17 2.83 1.17s2.05-.39 2.83-1.17l5.58-5.58c.68-1.18.85-2.74.17-4.05"></path>
-                  <path d="m18 12 2-2 1-1c.63-.63.63-1.7 0-2.34l-2.34-2.34c-.63-.63-1.7-.63-2.34 0l-1 1-2 2"></path>
-                  <path d="m7.5 2.5 1 1"></path>
-                  <path d="M14 8.5c.78.78 1.17 1.8 1.17 2.83 0 .71-.14 1.4-.42 2.02"></path>
+                  <path d="M14.5 10.5c-1.31.68-2.87.5-4.05-.17l-5.58 5.58c-1.56 1.56-1.56 4.09 0 5.66.78.78 1.8 1.17 2.83 1.17s2.05-.39 2.83-1.17l5.58-5.58c.68-1.18.85-2.74.17-4.05M18 12l2-2 1-1c.63-.63.63-1.7 0-2.34l-2.34-2.34c-.63-.63-1.7-.63-2.34 0l-1 1-2 2M7.5 2.5l1 1M14 8.5c.78.78 1.17 1.8 1.17 2.83 0 .71-.14 1.4-.42 2.02"></path>
                 </svg>
               ) : (
                 // Pin Icon
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14.5 10.5c-1.31.68-2.87.5-4.05-.17l-5.58 5.58c-1.56 1.56-1.56 4.09 0 5.66.78.78 1.8 1.17 2.83 1.17s2.05-.39 2.83-1.17l5.58-5.58c.68-1.18.85-2.74.17-4.05"></path>
-                  <path d="m18 12 2-2 1-1c.63-.63.63-1.7 0-2.34l-2.34-2.34c-.63-.63-1.7-.63-2.34 0l-1 1-2 2"></path>
-                  <path d="m7.5 2.5 1 1"></path>
-                  <path d="M14 8.5c.78.78 1.17 1.8 1.17 2.83 0 1.02-.39 2.05-1.17 2.83"></path>
+                  <path d="M14.5 10.5c-1.31.68-2.87.5-4.05-.17l-5.58 5.58c-1.56 1.56-1.56 4.09 0 5.66.78.78 1.8 1.17 2.83 1.17s2.05-.39 2.83-1.17l5.58-5.58c.68-1.18.85-2.74.17-4.05M18 12l2-2 1-1c.63-.63.63-1.7 0-2.34l-2.34-2.34c-.63-.63-1.7-.63-2.34 0l-1 1-2 2M7.5 2.5l1 1M14 8.5c.78.78 1.17 1.8 1.17 2.83 0 1.02-.39 2.05-1.17 2.83"></path>
                 </svg>
               )}
             </button>
 
             {/* Minimize button (right) */}
-            <button className="icon-button minimize-button" onClick={() => setIsMinimizedView(true)} title="Minimize view">
+            <button className="icon-button minimize-button" onClick={() => {
+              console.log("[Resize Debug] Minimizing view");
+              setIsMinimizedView(true);
+              window.electronAPI.resizeWindow(true); // Resize window when minimizing
+            }} title="Minimize view">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
           </div>
 
-          <div className="match-header">
-            <h3>{selectedMatchData.title}</h3>
-            {/* Updated Score Line to include CRR/RRR */}
-            <p className="score-line">
-              <span className="main-score">{selectedMatchData.score}</span>
-              {selectedMatchData.crr && (
-                <span className="run-rate crr">&nbsp; CRR: {selectedMatchData.crr}</span>
-              )}
-              {selectedMatchData.rrr && (
-                <span className="run-rate rrr">&nbsp; RRR: {selectedMatchData.rrr}</span>
-              )}
-              {selectedMatchData.opponent_score ? 
-                <span className="opponent-score">&nbsp; | {selectedMatchData.opponent_score}</span> 
-                : ''}
-            </p>
-            <p className="status">{selectedMatchData.status}</p>
-            {selectedMatchData.latestCommentary && (
-              <p className="latest-commentary">
-                {selectedMatchData.latestCommentary}
-              </p>
-            )}
-          </div>
-
+              <div className="match-header">
+          <h3>{selectedMatchData.title}</h3>
+                {/* Score Line with RRR on left, Score in center, CRR on right */}
+                <p className="score-line">
+                  {selectedMatchData.rrr ? (
+                    <span className="run-rate rrr">RRR: {selectedMatchData.rrr}</span>
+                  ) : <span className="run-rate rrr">&nbsp;</span>}
+                  <span className="main-score">{selectedMatchData.score}</span>
+                  {selectedMatchData.crr ? (
+                    <span className="run-rate crr">CRR: {selectedMatchData.crr}</span>
+                  ) : <span className="run-rate crr">&nbsp;</span>}
+                  {selectedMatchData.opponent_score && (
+                    <div className="opponent-score">| {selectedMatchData.opponent_score}</div>
+                  )}
+                </p>
+          <p className="status">{selectedMatchData.status}</p>
+                {selectedMatchData.latestCommentary && (
+                  <p className="latest-commentary">
+                    {selectedMatchData.latestCommentary}
+                  </p>
+                )}
+              </div>
+          
           <BattersTable batters={selectedMatchData.batters} />
           <BowlersTable bowlers={selectedMatchData.bowlers} />
           
@@ -298,6 +449,8 @@ function App() {
             <p className="pom">POM: {selectedMatchData.pom}</p>
           )}
         </div>
+          )}
+        </React.Fragment>
       )}
     </div>
   );

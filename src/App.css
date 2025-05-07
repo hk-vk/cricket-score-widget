@@ -208,11 +208,12 @@ body {
 
 .match-detail .status {
   font-size: 0.95em; 
-  color: #77dd77; /* Paler green */
+  color: #81c784 !important; /* Brighter green that pops more */
   text-align: center;
   font-style: italic;
   margin-bottom: 12px;
   text-shadow: none;
+  font-weight: 500; /* Add slight boldness */
 }
 
 .match-detail .pom {
@@ -225,22 +226,41 @@ body {
 
 /* Minimized View */
 .match-detail.minimized {
-  padding: 10px;
+  padding: 8px 10px;
+  height: auto; /* Allow content to determine height */
+}
+
+.minimized-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 0 4px;
+  -webkit-app-region: no-drag;
+}
+
+.expand-button {
+  /* No specific positioning needed with flex */
 }
 
 .match-detail.minimized p {
   font-size: 0.9em;
   text-align: center;
-  margin-bottom: 4px;
+  margin-bottom: 3px; /* Reduced margin */
+  line-height: 1.3; /* Compact line height */
 }
 
-.match-detail.minimized .score {
-  font-size: 1.1em;
-  font-weight: 600;
+/* Specialized styles for minimized view score and status */
+.mini-score {
+  font-size: 1.2em !important; /* Slightly larger */
+  font-weight: 600 !important;
+  margin-bottom: 4px !important;
 }
 
-.match-detail.minimized .status {
-  font-size: 0.8em;
+.mini-status {
+  font-size: 0.85em !important;
+  font-style: italic !important;
 }
 
 /* Table Styles */
@@ -320,17 +340,18 @@ body {
 
 /* Icon Button Group */
 .icon-button-group {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 0 4px; /* Padding for alignment */
-  margin: 0 0 10px 0; /* Bottom margin */
+  padding: 0 4px;
+  margin: 0 0 10px 0;
   -webkit-app-region: no-drag; 
 }
 
 .pin-button {
-  justify-self: center; /* Center the pin button */
+  /* Remove justify-self that was causing alignment issues */
 }
 
 /* Icon Buttons */
@@ -349,7 +370,7 @@ body {
   justify-content: center;
   width: 26px; 
   height: 26px; 
-  border-radius: 4px; /* Standard Win11 button radius */
+  border-radius: 4px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
@@ -476,41 +497,250 @@ body {
 
 .match-list li:hover {
   animation: glow 1.5s infinite;
-}
+} 
 
 .score-line {
-  margin-bottom: 5px; /* Example adjustment */
+  margin-bottom: 5px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  text-align: center;
+  width: 100%;
 }
 
 .main-score {
-  font-weight: bold; /* Keep bold */
-  font-size: 1.6em; /* Increase font size for main score */
+  font-weight: bold;
+  font-size: 1.4em;
+  grid-column: 2;
+  justify-self: center;
+  color: #ffffff; /* Pure white for better visibility */
 }
 
 .opponent-score {
-  color: #bbb; /* Slightly dimmer than main score example */
-  font-size: 1.0em; /* Keep opponent score at base size or adjust as needed */
+  color: #bbb;
+  font-size: 1.0em;
+  margin-top: 3px;
+  text-align: center;
+  grid-column: 1 / span 3;
+  width: 100%;
 }
 
 .run-rate {
-  font-size: 0.8em; /* Smaller font size */
-  color: #999; /* Gray color */
-  margin-left: 5px; /* Add a small space */
+  font-size: 0.85em;
+  font-weight: 500;
 }
 
 .crr {
-  /* Specific styles for CRR if needed */
+  grid-column: 3;
+  justify-self: end;
+  text-align: right;
+  color: #4fc3f7; /* Brighter, more vibrant blue */
 }
 
 .rrr {
-  /* Specific styles for RRR if needed */
+  grid-column: 1;
+  justify-self: start;
+  text-align: left;
+  color: #ffb74d; /* More saturated orange */
 }
 
 .latest-commentary {
-  font-size: 0.9em; /* Slightly smaller than default */
-  color: #b0b0b0; /* Lighter gray */
-  margin-top: 8px; /* Add some space above */
-  text-align: left; /* Align text to the left */
+  font-size: 0.9em;
+  color: #e0e0e0; /* Brighter silver/white color for better readability */
+  margin-top: 8px;
+  text-align: left;
   line-height: 1.4;
   font-style: italic;
+  padding: 8px 10px 8px 12px; /* Increased padding all around */
+  position: relative;
+  background: rgba(45, 45, 45, 0.7); /* Subtle dark background */
+  border-radius: 4px;
+  border-left: 3px solid rgba(149, 117, 205, 0.7); /* Thicker purple border */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); /* Subtle shadow */
+  margin-bottom: 10px; /* Add bottom margin */
+}
+
+/* Remove the previous pseudo-element since we now have a border-left property */
+.latest-commentary::before {
+  display: none;
+}
+
+/* Event Animations - Enhanced */
+@keyframes fourAnimation {
+  0% { 
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+    background-color: transparent;
+  }
+  20% { 
+    box-shadow: 0 0 30px 15px rgba(76, 175, 80, 0.7);
+    background-color: rgba(76, 175, 80, 0.15);
+    transform: scale(1.02);
+  }
+  40% {
+    box-shadow: 0 0 20px 10px rgba(76, 175, 80, 0.5);
+    background-color: rgba(76, 175, 80, 0.1);
+    transform: scale(1.01);
+  }
+  100% { 
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+    background-color: transparent;
+    transform: scale(1);
+  }
+}
+
+@keyframes sixAnimation {
+  0% { 
+    box-shadow: 0 0 0 0 rgba(33, 150, 243, 0);
+    background-color: transparent;
+    transform: scale(1) rotate(0);
+  }
+  20% { 
+    box-shadow: 0 0 50px 25px rgba(33, 150, 243, 0.9);
+    background-color: rgba(33, 150, 243, 0.25);
+    transform: scale(1.06) rotate(2deg);
+  }
+  40% {
+    box-shadow: 0 0 40px 20px rgba(33, 150, 243, 0.7);
+    transform: scale(1.04) rotate(-1deg);
+  }
+  60% {
+    box-shadow: 0 0 30px 15px rgba(33, 150, 243, 0.5);
+    transform: scale(1.02) rotate(0.5deg);
+  }
+  80% {
+    box-shadow: 0 0 20px 10px rgba(33, 150, 243, 0.3);
+    transform: scale(1.01) rotate(-0.25deg);
+  }
+  100% { 
+    box-shadow: 0 0 0 0 rgba(33, 150, 243, 0);
+    background-color: transparent;
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes wicketAnimation {
+  0% { 
+    box-shadow: 0 0 0 0 rgba(244, 67, 54, 0);
+    background-color: transparent;
+  }
+  10% { 
+    box-shadow: 0 0 35px 18px rgba(244, 67, 54, 0.8);
+    background-color: rgba(244, 67, 54, 0.3);
+    transform: translateX(-3px) scale(1.02);
+  }
+  20% {
+    box-shadow: 0 0 30px 15px rgba(244, 67, 54, 0.7);
+    transform: translateX(3px) scale(1.02);
+  }
+  30% {
+    transform: translateX(-2px) scale(1.01);
+  }
+  40% {
+    transform: translateX(2px) scale(1.01);
+  }
+  50% {
+    transform: translateX(-1px);
+  }
+  60% {
+    transform: translateX(1px);
+    background-color: rgba(244, 67, 54, 0.1);
+  }
+  100% { 
+    box-shadow: 0 0 0 0 rgba(244, 67, 54, 0);
+    background-color: transparent;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* Event Classes - Improved */
+.match-detail.event-four {
+  animation: fourAnimation 1.5s ease-out forwards !important;
+  z-index: 100;
+}
+
+.match-detail.event-six {
+  animation: sixAnimation 2s ease-out forwards !important;
+  z-index: 100;
+}
+
+.match-detail.event-wicket {
+  animation: wicketAnimation 1.8s ease-out forwards !important;
+  z-index: 100;
+}
+
+/* Enhanced animation styles for content inside the animated container */
+.match-detail.event-four .score-line .main-score,
+.match-detail.event-six .score-line .main-score,
+.match-detail.event-wicket .score-line .main-score {
+  animation: textPulse 1.5s ease-out forwards;
+}
+
+@keyframes textPulse {
+  0% { transform: scale(1); }
+  20% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+/* Ensure animations work consistently */
+.match-detail {
+  transition: none !important; /* Remove previous transition to prevent conflicts */
+}
+
+/* Event Overlay */
+.event-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  pointer-events: none;
+  opacity: 0;
+  animation: fade-in-out 1.5s ease-in-out forwards;
+}
+
+@keyframes fade-in-out {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+  20% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+  80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+}
+
+.event-text {
+  font-size: 48px;
+  font-weight: bold;
+  text-align: center;
+  text-shadow: 0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor;
+  animation: pulse-text 1.5s ease-in-out;
+  line-height: 1;
+  white-space: nowrap;
+  padding: 20px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+}
+
+@keyframes pulse-text {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.event-four-overlay .event-text {
+  color: #4CAF50;
+  text-shadow: 0 0 10px #4CAF50, 0 0 20px #4CAF50, 0 0 30px #4CAF50;
+}
+
+.event-six-overlay .event-text {
+  color: #2196F3;
+  text-shadow: 0 0 15px #2196F3, 0 0 25px #2196F3, 0 0 35px #2196F3;
+}
+
+.event-wicket-overlay .event-text {
+  color: #F44336;
+  text-shadow: 0 0 10px #F44336, 0 0 20px #F44336, 0 0 30px #F44336;
 } 
