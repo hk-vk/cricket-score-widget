@@ -727,18 +727,18 @@ async function fetchDetailedScore(url) {
                       // Check if it contains at least one number (runs or balls)
                       if (/\d/.test(potentialChaseStatus)) {
                            finalStatusText = potentialChaseStatus;
-                           statusFound = true;
+          statusFound = true;
                            console.log(`[StatusDebug] NEW Priority 4: Using extracted chase status: "${finalStatusText}"`);
                            return false; // Break .each loop once found
-                      }
-                  }
+        }
+      }
                    console.log('[StatusDebug] NEW Priority 4: Pattern matched, but validation failed. Continuing search.');
               }
           }
            if (statusFound) return false; // Break from chaseStatusAreas.each if found
       });
     }
-
+    
     // Original Priority 4 (now NEW Priority 5): More generic live/in-progress status
     if (!statusFound) {
       console.log('[StatusDebug] Checking NEW Priority 5: Generic live/in-progress...');
@@ -789,7 +789,7 @@ async function fetchDetailedScore(url) {
 
             if (extractedPhrase) {
                 cleanedStatus = extractedPhrase;
-            } else {
+      } else {
                 // If no specific phrase, then aggressively clean the whole string
                 const delimiters = [
                   "CRR:", "RRR:", "Commentary:", "Recent:", "Last Wkt:", 

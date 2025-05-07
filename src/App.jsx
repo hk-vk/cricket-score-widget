@@ -15,12 +15,14 @@ function App() {
   const [currentEvent, setCurrentEvent] = useState(null);
   const [animationKey, setAnimationKey] = useState(0); // Add animation key for forced re-render
   const [showEventOverlay, setShowEventOverlay] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Event animation timeout ref
   const eventTimeoutRef = useRef(null);
   const overlayTimeoutRef = useRef(null);
   const processedEventInstanceRef = useRef(null); // Ref to store the last processed event instance
   const isMatchJustSelected = useRef(false); // Ref to track if a match was just selected
+  const transitionTimeoutRef = useRef(null);
 
   // Ref to hold the current selectedMatchData for use in listeners
   const selectedMatchDataRef = useRef(null);
@@ -138,6 +140,7 @@ function App() {
     return () => {
       if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
       if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
+      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
       listeners.forEach(removeListener => removeListener());
     };
   }, []);
@@ -157,56 +160,94 @@ function App() {
 
   // --- Handlers ---
   const handleMatchSelect = async (url) => {
+    // Prevent double selection during transition
+    if (isTransitioning || matchLoading) {
+      console.log("[App.jsx] Match selection blocked - already transitioning or loading");
+      return;
+    }
+    
     console.log("[App.jsx] Match selected:", url);
+    
+    // Set transition state to prevent rapid toggling
+    setIsTransitioning(true);
     isMatchJustSelected.current = true;
     processedEventInstanceRef.current = null;
     setShowCommentary(false);
     setMatchLoading(true);
     setError(null);
-    window.electronAPI.selectMatch(url);
+    
     try {
+      // Tell main process about selection
+      window.electronAPI.selectMatch(url);
+      
       const initialDetails = await window.electronAPI.fetchDetailedScore(url);
       if (initialDetails) {
         setSelectedMatchData(initialDetails);
         console.log("[App.jsx] Initial details set. LastEvent (should be null):", initialDetails.lastEvent);
       } else {
-        setError('Failed to load match details. Try again.'); setSelectedMatchData(null);
+        throw new Error('Failed to load match details. Try again.');
       }
     } catch (err) {
-      console.error("Error in handleMatchSelect:", err); setError('Error fetching match details.'); setSelectedMatchData(null);
+      console.error("Error in handleMatchSelect:", err);
+      setError(err.message || 'Error fetching match details.');
+      setSelectedMatchData(null);
+      // If selection fails, clear selection in main process
+      window.electronAPI.selectMatch(null);
     } finally {
       setMatchLoading(false);
+      // Allow a short delay before allowing another transition
+      transitionTimeoutRef.current = setTimeout(() => {
+        setIsTransitioning(false);
+      }, 250);
     }
   };
 
   const handleBackToList = () => {
-    console.log('[App.jsx] Back button clicked. Prioritizing UI transition to list view.');
+    // Prevent multiple clicks during transition
+    if (isTransitioning) {
+      console.log('[App.jsx] Back navigation blocked - already transitioning');
+      return;
+    }
     
-    // 1. Immediately trigger UI change to show the match list.
-    //    This should use the already cached `matches` state.
-    setSelectedMatchData(null); 
-    //    selectedMatchDataRef will update in its own useEffect.
-
-    // 2. Clear any errors that might have been set from the detail view.
+    console.log('[App.jsx] Back button clicked. Initiating transition to list view.');
+    
+    // Set transition state to prevent rapid toggling
+    setIsTransitioning(true);
+    
+    // 1. Immediately trigger UI change to show the match list
+    setSelectedMatchData(null);
+    
+    // 2. Clear any errors that might have been set from the detail view
     setError(null); 
 
-    // 3. Inform the main process that no match is selected.
-    //    This can happen after the UI state update.
-    window.electronAPI.selectMatch(null);
+    // 3. Inform the main process that no match is selected
+    try {
+      window.electronAPI.selectMatch(null);
+    } catch (err) {
+      console.error('[App.jsx] Error clearing match selection:', err);
+    }
     
-    // 4. Reset other states specific to the detailed view.
-    //    These are less critical for the immediate UI transition back to the list.
-    console.log('[App.jsx] Clearing detail-specific states post-navigation.');
+    // 4. Reset other states specific to the detailed view
+    console.log('[App.jsx] Clearing detail-specific states post-navigation');
     processedEventInstanceRef.current = null;
     isMatchJustSelected.current = false; 
     setCommentary('');
     setShowCommentary(false);
     setCurrentEvent(null); 
+    
+    // 5. Clear any pending timeouts
     if (eventTimeoutRef.current) clearTimeout(eventTimeoutRef.current);
     if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current);
     setShowEventOverlay(false);
-    // setMatchLoading(false); // Ensure this is false if it was somehow true
+    
     if (matchLoading) setMatchLoading(false);
+    
+    // 6. Allow a short delay before allowing another transition
+    transitionTimeoutRef.current = setTimeout(() => {
+      setIsTransitioning(false);
+      // Refresh the match list after transition
+      fetchData(false);
+    }, 250);
   };
 
   const toggleCommentary = () => setShowCommentary(!showCommentary);
@@ -322,7 +363,15 @@ function App() {
           {error && <p className="error-message">List Error: {error} (Retrying in background)</p>} 
           <ul style={{ maxHeight: `calc(100% - 60px - ${error ? '20px' : '0px'})`, overflowY: 'auto' }}>
             {matches.length > 0 ? matches.map(match => (
-              <li key={match.url} onClick={() => handleMatchSelect(match.url)}><span className="match-title">{match.title}</span><span className="match-score">{match.score}</span></li>
+              <li 
+                key={match.url} 
+                onClick={() => handleMatchSelect(match.url)}
+                className={isTransitioning || matchLoading ? 'disabled' : ''}
+                style={isTransitioning || matchLoading ? {pointerEvents: 'none', opacity: 0.7} : {}}
+              >
+                <span className="match-title">{match.title}</span>
+                <span className="match-score">{match.score}</span>
+              </li>
             )) : <li>No live matches found.</li>}
           </ul>
         </div>
@@ -331,7 +380,10 @@ function App() {
       ) : error ? (
          <div className="match-detail error">
             <p>Error loading match: {error}</p>
-            <button onClick={handleBackToList}>Back to List</button> 
+            <button 
+              onClick={handleBackToList}
+              disabled={isTransitioning}
+            >Back to List</button> 
          </div>
       ) : (
         // Detail View (minimized or full) with event overlay
@@ -391,7 +443,12 @@ function App() {
           {/* Icon Button Group */}
           <div className="icon-button-group">
             {/* Back button (left) */}
-            <button className="icon-button back-button" onClick={handleBackToList} title="Back to list">
+            <button 
+              className="icon-button back-button" 
+              onClick={handleBackToList} 
+              title="Back to list"
+              disabled={isTransitioning}
+            >
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
               </svg>

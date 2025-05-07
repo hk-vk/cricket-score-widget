@@ -47,16 +47,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('update-selected-details', listener);
     };
   },
-  // Remove Window Dragging IPC
-  /*
-  startWindowDrag: () => ipcRenderer.send('start-window-drag'),
-  dragWindow: (offset) => ipcRenderer.send('drag-window', offset), 
-  endWindowDrag: () => ipcRenderer.send('end-window-drag'),
-  */
-  // Remove Window Nudge IPC
-  /*
-  moveWindowByOffset: (offset) => ipcRenderer.send('move-window-by-offset', offset),
-  */
+  // --- ADDED: Window resize function ---
+  resizeWindow: (isMinimized) => ipcRenderer.send('resize-window', isMinimized),
   // --- ADDED: Pin Window IPC ---
   setAlwaysOnTop: (isPinned) => ipcRenderer.send('set-always-on-top', isPinned),
 });
