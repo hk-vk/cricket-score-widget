@@ -18,7 +18,8 @@ const DETAILED_UPDATE_INTERVAL_SECONDS = 5;
 
 // --- Window Size & Positioning ---
 const WINDOW_WIDTH = 280;
-const WINDOW_HEIGHT = 350; // Default height for list view
+const WINDOW_HEIGHT = 400; // Default height for full view
+const WINDOW_HEIGHT_MINIMIZED = 110; // Even smaller height for minimized view (just score and status)
 const WINDOW_HEIGHT_DETAIL = 320; // Height for detail view
 const MARGIN_X = 10;
 const MARGIN_Y = 10;
@@ -33,6 +34,73 @@ let staticIconPath = null; // Store path to original icon
 let defaultTrayIcon = null; // Store default NativeImage
 let initialWindowPositionForDrag = null; // Store window position at drag start
 let isWindowPinned = true; // Track pinned state in main, default true
+
+// Add after other constants
+let previousSelectedMatchState = {};
+let previousEventByUrl = {};
+let processedCommentaryByUrl = {}; // Track processed commentary to avoid showing the same delivery twice
+let lastEventTimeByUrl = {}; // Track last event time to prevent rapid repeats
+
+// Helper function to extract wicket count from score
+function extractWicketCount(score) {
+  if (!score) return null;
+  const match = score.match(/\/(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+// Helper function to detect boundary or wicket from commentary
+function detectEventFromCommentary(commentary) {
+  if (!commentary) return null;
+  const lowerComm = commentary.toLowerCase();
+  console.log(`[EventDetect] Checking commentary: "${lowerComm}"`);
+
+  // Check for boundary terms (more specific first)
+  if (lowerComm.includes('four') || 
+      lowerComm.includes('4 runs') || 
+      lowerComm.includes('4!') || 
+      lowerComm.includes('4 !')) {
+    console.log('[EventDetect] FOUR detected from commentary.');
+    return 'four';
+  }
+  
+  if (lowerComm.includes('six') || 
+      lowerComm.includes('6 runs') || 
+      lowerComm.includes('6!') || 
+      lowerComm.includes('6 !')) {
+    console.log('[EventDetect] SIX detected from commentary.');
+    return 'six';
+  }
+
+  // Check for wicket-related terms
+  const wicketTerms = [
+    'out caught', 'c & b', 'caught & bowled', 'run out', 
+    'bowled', 'caught', 'lbw', 'stumped', 'retired hurt', 
+    'hit wicket', ' out', ',out', 'out!', 'wicket!', 'dismissed'
+  ];
+  if (wicketTerms.some(term => lowerComm.includes(term))) {
+    console.log('[EventDetect] WICKET detected from commentary.');
+    return 'wicket';
+  }
+
+  console.log('[EventDetect] No specific event detected from commentary.');
+  return null;
+}
+
+// Helper function to check if enough time has passed since last event
+function canTriggerNewEvent(url, eventType) {
+  const now = Date.now();
+  const lastEventTime = lastEventTimeByUrl[url]?.[eventType] || 0;
+  const minTimeBetweenEvents = 2000; // 2 seconds minimum between same type of events
+  
+  if (now - lastEventTime >= minTimeBetweenEvents) {
+    if (!lastEventTimeByUrl[url]) {
+      lastEventTimeByUrl[url] = {};
+    }
+    lastEventTimeByUrl[url][eventType] = now;
+    return true;
+  }
+  return false;
+}
 
 // --- ADDED: Player Name Formatting Helper ---
 function formatPlayerName(fullName) {
@@ -478,6 +546,11 @@ async function fetchAndParseCricbuzz() {
 async function fetchDetailedScore(url) {
   if (!url) return null;
 
+  // Get previous state for this match
+  const prevState = previousSelectedMatchState[url] || {};
+  const prevEvent = previousEventByUrl[url] || null;
+  const processedCommentaries = processedCommentaryByUrl[url] || new Set();
+
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9',
@@ -489,22 +562,24 @@ async function fetchDetailedScore(url) {
     const response = await axios.get(url, { headers, timeout: 15000 });
     const $ = cheerio.load(response.data);
 
-    // Initialize result object
+    // Initialize result object with lastEvent
     const result = {
       title: 'N/A',
-      score: 'N/A', // Current batting team score or primary score line
-      opponent_score: null, // Opponent score (usually from completed innings)
-      status: '', // Match status (e.g., Live, Result, Stumps)
-      crr: null, // ADDED: Current Run Rate
-      rrr: null, // ADDED: Required Run Rate
-      latestCommentary: null, // ADDED: Latest commentary snippet
-      batters: [], // Array of { name, runs, balls, fours, sixes, sr, isStriker }
-      bowlers: [], // Array of { name, overs, maidens, runs, wickets, eco, isCurrent }
+      score: 'N/A',
+      opponent_score: null,
+      status: '',
+      crr: null,
+      rrr: null,
+      latestCommentary: null,
+      batters: [],
+      bowlers: [],
       team1_name: null,
       team2_name: null,
       pom: null,
       is_complete: false,
-      recent_balls: null // Store recent balls string if available
+      recent_balls: null,
+      lastEvent: null, // Initialize lastEvent
+      deliveryIdentifier: null // Initialize deliveryIdentifier
     };
 
     // Extract title and team names
@@ -531,88 +606,279 @@ async function fetchDetailedScore(url) {
     // Score and Status Extraction - Improved approach to get accurate status
     const scoreWrapper = $('div.cb-scrs-wrp');
     
-    // Extract match status - try different selectors in priority order
-    const statusSelectors = [
-      // Primary status selectors - most reliable
-      'div.cb-text-inprogress', 
-      'div.cb-text-live',
-      'div.cb-text-complete',
-      'div.cb-min-stts',
-      // Specific situations
-      'div.cb-text-rain',
-      'div.cb-text-lunch',
-      'div.cb-text-tea',
-      'div.cb-text-drinks',
-      'div.cb-text-stump',
-      'div.cb-text-innings-break',
-      'div.cb-text-delayed',
-      'div.cb-text-abandoned',
-      // Combined status for special cases (like Innings Break - Rain Stops Play)
-      '[class*="cb-text-"][class*="-"]',
-      // Generic fallbacks
-      'div[class*="cb-text-"]',
-      'span.cb-text-gray',
-      // Match state indicators from the page
-      '.cb-font-12.cb-text-gray.cb-ovr-flo'
-    ];
-    
+    let finalStatusText = '';
     let statusFound = false;
-    let combinedStatus = [];
-    
-    // Try selectors in order (from most specific to most generic)
-    for (const selector of statusSelectors) {
-      const statusElements = $(selector);
-      
-      if (statusElements.length) {
-        statusElements.each((_, el) => {
-          const statusText = $(el).text().trim();
-          // Ignore very short status texts or those that don't look like status
-          if (statusText.length > 2 && !statusText.match(/^(\d+|[a-z]+)$/i)) {
-            combinedStatus.push(statusText);
+    console.log('[StatusDebug] Starting status extraction...');
+
+    // Priority 1: Highly specific, clean statuses from dedicated elements
+    const specificStatusMappings = [
+      { selector: 'div.cb-text-inningsbreak', text: 'Innings Break' },
+      { selector: 'div.cb-text-stumps', text: 'Stumps' },
+      { selector: 'div.cb-text-lunch', text: 'Lunch Break' },
+      { selector: 'div.cb-text-tea', text: 'Tea Break' },
+      { selector: 'div.cb-text-drinks', text: 'Drinks Break' },
+      { selector: 'div.cb-text-delayed', text: 'Match Delayed' },
+      { selector: 'div.cb-text-abandoned', text: 'Match Abandoned' },
+      { selector: 'div.cb-text-rain', textContains: 'Rain', defaultText: 'Rain Delay' },
+      { selector: 'div.cb-text-strategic-timeout', text: 'Strategic Timeout' }
+    ];
+
+    for (const mapping of specificStatusMappings) {
+      const el = $(mapping.selector).first();
+      if (el.length) {
+        console.log(`[StatusDebug] Priority 1: Found element with selector: ${mapping.selector}`);
+        if (mapping.text) {
+          finalStatusText = mapping.text;
+          console.log(`[StatusDebug] Priority 1: Using predefined text: "${finalStatusText}"`);
+        } else if (mapping.textContains) {
+          const elText = el.text().trim();
+          if (elText.toLowerCase().includes(mapping.textContains.toLowerCase())) {
+            finalStatusText = elText.length > 0 && elText.length < 35 ? elText : mapping.defaultText;
+            console.log(`[StatusDebug] Priority 1: Using text from element (contains ${mapping.textContains}): "${finalStatusText}"`);
           }
-        });
-        
-        if (combinedStatus.length > 0) {
-          // Remove duplicates and combine statuses
-          const uniqueStatuses = [...new Set(combinedStatus)];
-          result.status = uniqueStatuses.join(' - ');
-          statusFound = true;
-          break;
         }
-      }
-    }
-    
-    // If still no status, try to find a match status paragraph
-    if (!statusFound) {
-      const statusParas = $('.cb-min-stts, .cb-col-100.cb-min-stts, .cb-min-pad.cb-col-100');
-      if (statusParas.length) {
-        const statusText = statusParas.text().trim();
-        if (statusText.length > 2) {
-          result.status = statusText;
+        if (finalStatusText) {
           statusFound = true;
+          break; 
         }
       }
     }
 
-    // Analyze if match is complete
-    if (statusFound) {
-      const completionIndicators = ['won by', 'draw', 'tied', 'no result', 'abandoned', 'complete'];
-      result.is_complete = completionIndicators.some(indicator =>
-        result.status.toLowerCase().includes(indicator));
+    // Priority 2: Match completed status (often has winner info)
+    if (!statusFound) {
+      console.log('[StatusDebug] Checking Priority 2: Match completed status...');
+      const completeEl = $('div.cb-text-complete').first();
+      if (completeEl.length) {
+        const completeText = completeEl.text().trim();
+        console.log(`[StatusDebug] Priority 2: Found .cb-text-complete, text: "${completeText}"`);
+        if (completeText.includes('won by') || 
+            completeText.toLowerCase().includes('match tied') || 
+            completeText.toLowerCase().includes('match drawn') || 
+            completeText.toLowerCase().includes('no result')) {
+          finalStatusText = completeText;
+          statusFound = true;
+          console.log(`[StatusDebug] Priority 2: Using completion text: "${finalStatusText}"`);
+        }
+      }
     }
+    
+    // Priority 3: Check for key phrases within general status areas if not found yet
+    if (!statusFound) {
+        console.log('[StatusDebug] Checking Priority 3: Key phrases in general areas...');
+        const generalStatusAreas = $('div.cb-min-stts, div.cb-text-inprogress, div.cb-text-live');
+        const keyPhrases = [
+            { phrase: "Innings Break", result: "Innings Break" },
+            { phrase: "Strategic Timeout", result: "Strategic Timeout" },
+            { phrase: "Stumps", result: "Stumps" },
+            { phrase: "Lunch", result: "Lunch Break" },
+            { phrase: "Tea", result: "Tea Break" },
+            { phrase: "Drinks", result: "Drinks Break" },
+            { phrase: "Rain", result: "Rain Delay" }
+        ];
+        
+        generalStatusAreas.each((i, area) => {
+            const areaText = $(area).text();
+            console.log(`[StatusDebug] Priority 3: Checking area ${i} text: "${areaText.substring(0, 100)}"...`);
+            for (const item of keyPhrases) {
+                if (areaText.toLowerCase().includes(item.phrase.toLowerCase())) {
+                    finalStatusText = item.result;
+                    statusFound = true;
+                    console.log(`[StatusDebug] Priority 3: Found key phrase "${item.phrase}", using: "${finalStatusText}"`);
+                    return false; // Break .each loop
+                }
+            }
+            if (statusFound) return false; // Break from generalStatusAreas.each if found
+        });
+    }
+
+    // NEW Priority 4: Check for detailed chase/target status
+    if (!statusFound) {
+      console.log('[StatusDebug] Checking NEW Priority 4: Detailed chase/target status...');
+      const chaseStatusAreas = $('div.cb-text-live, div.cb-text-inprogress, div.cb-min-stts');
+      let potentialChaseStatus = '';
+
+      chaseStatusAreas.each((i, area) => {
+          const areaText = $(area).text().trim();
+          console.log(`[StatusDebug] NEW Priority 4: Checking area ${i} text: "${areaText.substring(0, 150)}"...`);
+
+          // Look for common patterns indicating a chase or target
+          const chasePatterns = [
+              /(.*?)\s+(?:need|require|needs|requires)\s+(\d+)\s+runs?\s+from\s+(\d+)\s+balls?/i, // Team needs X runs from Y balls
+              /(.*?)\s+(?:need|require|needs|requires)\s+(\d+)\s+runs?\s+to win/i, // Team needs X runs to win
+              /Target:\s*(\d+)/i, // Target: XXX
+              /(.*?)\s+to win is\s+(\d+)/i, // ...to win is XXX
+              /(.*?)\s+(?:trail|lead)\s+by\s+(\d+)\s+runs?/i // Team trail/lead by X runs (for multi-day)
+          ];
+
+          for (const pattern of chasePatterns) {
+              const match = areaText.match(pattern);
+              if (match) {
+                  // Found a relevant chase pattern
+                  potentialChaseStatus = match[0].trim(); // Use the full matched string
+
+                  // Optional: Clean up leading/trailing non-essential text around the match
+                  // This might need refinement based on more examples.
+                  // For now, let's just use the raw match and trust the patterns are specific.
+
+                  console.log(`[StatusDebug] NEW Priority 4: Found chase pattern match: "${potentialChaseStatus}"`);
+
+                  // Validate the extracted status - ensure it's not just junk or too long
+                  if (potentialChaseStatus.length > 0 && potentialChaseStatus.length < 80) { // Limit length
+                      // Check if it contains at least one number (runs or balls)
+                      if (/\d/.test(potentialChaseStatus)) {
+                           finalStatusText = potentialChaseStatus;
+                           statusFound = true;
+                           console.log(`[StatusDebug] NEW Priority 4: Using extracted chase status: "${finalStatusText}"`);
+                           return false; // Break .each loop once found
+                      }
+                  }
+                   console.log('[StatusDebug] NEW Priority 4: Pattern matched, but validation failed. Continuing search.');
+              }
+          }
+           if (statusFound) return false; // Break from chaseStatusAreas.each if found
+      });
+    }
+
+    // Original Priority 4 (now NEW Priority 5): More generic live/in-progress status
+    if (!statusFound) {
+      console.log('[StatusDebug] Checking NEW Priority 5: Generic live/in-progress...');
+      const liveEl = $('div.cb-text-live, div.cb-text-inprogress').first();
+      if (liveEl.length) {
+        let liveText = liveEl.text().trim();
+        console.log(`[StatusDebug] Priority 5: Found live/inprogress element, text: "${liveText}"`);
+        
+        // First, check if the text contains runs/balls requirements - KEEP this text as is
+        if (liveText.match(/need|require|needs|requires|to win|target|runs?|balls?|overs?/i) && /\d+/.test(liveText)) {
+          finalStatusText = liveText;
+          statusFound = true;
+          console.log(`[StatusDebug] Priority 5: Using detailed run chase text: "${finalStatusText}"`);
+        }
+        // If not a run chase but still reasonable length text, use it
+        else if (liveText.length > 0 && liveText.length < 30) { 
+          finalStatusText = liveText;
+          statusFound = true;
+          console.log(`[StatusDebug] Priority 5: Using short status text: "${finalStatusText}"`);
+        } 
+        // Otherwise fallback to generic status
+        else if (liveText.length > 0) { 
+          finalStatusText = liveText.toLowerCase().includes("live") ? "Live" : "In Progress";
+          statusFound = true;
+          console.log(`[StatusDebug] Priority 5: Using generic status: "${finalStatusText}"`);
+        }
+      }
+    }
+    
+    // Original Priority 5 (now NEW Priority 6): Last resort - the cb-min-stts element, but heavily cleaned.
+    if (!statusFound) {
+        console.log('[StatusDebug] Checking NEW Priority 6: Fallback to cb-min-stts with cleaning...');
+        const minSttsEl = $('div.cb-min-stts').first();
+        if (minSttsEl.length) {
+            let fullText = minSttsEl.text().trim();
+            console.log(`[StatusDebug] Priority 6: Full text from cb-min-stts: "${fullText.substring(0,150)}"`);
+            let cleanedStatus = fullText;
+
+            const knownKeyPhrasesInFullText = ["Innings Break", "Strategic Timeout", "Stumps", "Lunch", "Tea", "Drinks Break", "Rain Delay", "Match Delayed", "Match Abandoned"];
+            let extractedPhrase = "";
+            for (const phrase of knownKeyPhrasesInFullText) {
+                if (fullText.toLowerCase().includes(phrase.toLowerCase())) {
+                    extractedPhrase = phrase;
+                    console.log(`[StatusDebug] Priority 6: Extracted key phrase "${extractedPhrase}" from cb-min-stts.`);
+                    break;
+                }
+            }
+
+            if (extractedPhrase) {
+                cleanedStatus = extractedPhrase;
+            } else {
+                // If no specific phrase, then aggressively clean the whole string
+                const delimiters = [
+                  "CRR:", "RRR:", "Commentary:", "Recent:", "Last Wkt:", 
+                  "Partnership:", "Toss:", "All Series", "Move to top", 
+                  "Key Stats", "Last 5 overs", "wicketkeeper", "bowler",
+                  "fielder", "batting", "bowling",
+                  "run out", "lbw", "caught", "bowled", "stumped",
+                  "target", "trail by", "lead by", "elected to", "opt to",
+                  "need", "runs", "wickets", "from", "balls", "overs",
+                  "Today", "Tomorrow", "Yesterday",
+                  "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+                  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                ];
+
+                // First, remove text after primary delimiters that often precede junk
+                const primaryJunkDelimiters = ["CRR:", "RRR:", "Commentary:", "Recent:", "Last Wkt:", "Key Stats", "All Series", "Partnership:", "Last 5 overs", "Toss:"];
+                for (const delimiter of primaryJunkDelimiters) {
+                    if (cleanedStatus.includes(delimiter)) {
+                        cleanedStatus = cleanedStatus.substring(0, cleanedStatus.indexOf(delimiter)).trim();
+                    }
+                }
+                
+                // Remove common cricbuzz patterns and extra info
+                cleanedStatus = cleanedStatus.replace(/-\s*{{premiumScreenName}}\s*-/gi, '').trim();
+                cleanedStatus = cleanedStatus.replace(/-\s*\w+\s*-\s*\w+(\s+\w+)*\s*-\s*Click for more details/gi, '').trim();
+                cleanedStatus = cleanedStatus.replace(/Click here for full scorecard.*/gi, '').trim();
+                cleanedStatus = cleanedStatus.replace(/View Full Commentary.*/gi, '').trim();
+                
+                // Attempt to remove player names if they are structured like " - Player Name - "
+                // This is tricky and might need refinement.
+                // cleanedStatus = cleanedStatus.replace(/-\s+([A-Z][a-z]+(\s+[A-Z][a-z]+)+)\s+-/g, '').trim();
+
+
+                // Remove any leading non-alphanumeric characters (except spaces) like '» - '
+                cleanedStatus = cleanedStatus.replace(/^[^a-zA-Z0-9\s]+/, '').trim();
+                // Remove trailing non-alphanumeric characters
+                cleanedStatus = cleanedStatus.replace(/[^a-zA-Z0-9\s]+$/, '').trim();
+
+                // If it's too long after cleaning, or doesn't look like a status, it's suspect
+                // Also add a check if it contains a relevant status keyword even if short
+                const relevantStatusKeywords = ["Innings Break", "Stumps", "Lunch", "Tea", "Drinks Break", "Rain Delay", "Match Delayed", "Abandoned"];
+                const isLikelyStatus = cleanedStatus.length > 0 && cleanedStatus.length < 50 && // Increased length slightly
+                                       (!cleanedStatus.match(/(\d+\/d+)|(\d+s*ov)/) || // Avoid scores unless part of a chase status
+                                        relevantStatusKeywords.some(keyword => cleanedStatus.includes(keyword)) || // Explicitly allow known states
+                                        cleanedStatus.toLowerCase().includes('target') || // Explicitly allow target
+                                        cleanedStatus.toLowerCase().includes('win') || // Explicitly allow 'win'
+                                        cleanedStatus.toLowerCase().includes('lead') || // Explicitly allow 'lead'
+                                        cleanedStatus.toLowerCase().includes('trail')); // Explicitly allow 'trail'
+
+
+                if (isLikelyStatus) {
+                    finalStatusText = cleanedStatus;
+                    statusFound = true;
+                    console.log(`[StatusDebug] NEW Priority 6: Using cleaned status: "${finalStatusText}"`);
+                } else if (cleanedStatus.length === 0 && fullText.toLowerCase().includes("live")){
+                    finalStatusText = "Live"; // if cleaning removed everything but it was live
+                    statusFound = true;
+                     console.log(`[StatusDebug] NEW Priority 6: Fallback to Live after cleaning.`);
+                } else {
+                    console.log(`[StatusDebug] NEW Priority 6: Cleaned status "${cleanedStatus}" did not pass validation.`);
+                }
+            }
+             if (extractedPhrase && !finalStatusText) { // If we got an extracted phrase but didn't set finalStatusText
+                finalStatusText = extractedPhrase;
+          statusFound = true;
+           console.log(`[StatusDebug] NEW Priority 6: Using extracted phrase: "${finalStatusText}"`);
+        }
+      }
+    }
+
+    result.status = (statusFound && finalStatusText && finalStatusText.trim() !== '') ? finalStatusText.trim() : 'Match In Progress';
+    console.log(`[StatusDebug] FINAL STATUS: "${result.status}" (statusFound: ${statusFound}, finalStatusText: "${finalStatusText}")`);
+
+    // Analyze if match is complete (based on the refined status)
+    result.is_complete = false; // Reset
+    if (result.status) {
+      const lowerStatus = result.status.toLowerCase();
+      const completionIndicators = ['won by', 'match tied', 'match drawn', 'no result', 'abandoned', 'match complete'];
+      result.is_complete = completionIndicators.some(indicator => lowerStatus.includes(indicator));
+      if (lowerStatus.includes("innings break") || lowerStatus.includes("live") || lowerStatus.includes("in progress") || lowerStatus.includes("stumps") || lowerStatus.includes("strategic timeout") || lowerStatus.includes("drinks") || lowerStatus.includes("tea") || lowerStatus.includes("lunch") || lowerStatus.includes("delay")) {
+        result.is_complete = false; // Explicitly not complete for these states
+      }
+    }
+    console.log(`[StatusDebug] Is match complete: ${result.is_complete} (based on status: "${result.status}")`);
 
     // Check specific status patterns based on team names to avoid mixing up status
+    // This check might be less critical now with better status parsing, but can remain as a safeguard
     if (result.is_complete && result.team1_name && result.team2_name) {
-      // Validate that status mentions one of the teams
-      if (result.status.includes(result.team1_name) || 
-          result.status.includes(result.team2_name) ||
-          (result.team1_name.length > 3 && result.status.includes(result.team1_name.substring(0, 3))) ||
-          (result.team2_name.length > 3 && result.status.includes(result.team2_name.substring(0, 3)))) {
-        // Status is valid as it mentions a team from the match
-      } else {
-        // Status doesn't mention either team, might be generic or incorrect
-        console.log(`Status doesn't mention either team, might need validation: ${result.status}`);
-      }
+      // ... (existing validation logic for completed match status, can be kept or simplified)
     }
     
     // Extract Scores - this should work for both completed and live matches
@@ -738,31 +1004,82 @@ async function fetchDetailedScore(url) {
     }
     // --- END ADDED ---
 
-    // --- ADDED: Extract and Process Latest Commentary ---
-    const commentaryLines = $('p.cb-com-ln.cb-col.cb-col-90'); // Select potential commentary lines
+    // After parsing the current score, detect wicket
+    const currentWicketCount = extractWicketCount(result.score);
+    const previousWicketCount = prevState.wicketCount;
+
+    if (previousWicketCount !== null && currentWicketCount !== null && 
+        currentWicketCount > previousWicketCount && !result.is_complete) {
+      if (canTriggerNewEvent(url, 'wicket')) {
+        result.lastEvent = 'wicket';
+        console.log(`[EventDebug] Wicket detected from score change: ${previousWicketCount} -> ${currentWicketCount}`);
+      }
+    }
+
+    // Update commentary parsing to include event detection
+    const commentaryLines = $('p.cb-com-ln.cb-col.cb-col-90');
     if (commentaryLines.length > 0) {
-      // Often the first one after the score section is the latest ball
-      let latestCommText = $(commentaryLines[0]).text().trim();
+      const overNumberElement = $(commentaryLines[0]).closest('div').find('.cb-ovr-num');
+      const overNumber = overNumberElement.length > 0 ? overNumberElement.text().trim() : '';
+      result.deliveryIdentifier = overNumber; // Store the overNumber as deliveryIdentifier
+
+      let latestCommTextRaw = $(commentaryLines[0]).text().trim();
+      console.log(`[EventDebug] Raw commentary line 0: "${latestCommTextRaw}"`);
       
-      // Find the index of the second comma
-      let firstCommaIndex = latestCommText.indexOf(',');
+      let firstCommaIndex = latestCommTextRaw.indexOf(',');
       let secondCommaIndex = -1;
       if (firstCommaIndex !== -1) {
-        secondCommaIndex = latestCommText.indexOf(',', firstCommaIndex + 1);
+        secondCommaIndex = latestCommTextRaw.indexOf(',', firstCommaIndex + 1);
       }
 
-      // Truncate if the second comma exists
-      if (secondCommaIndex !== -1) {
-        result.latestCommentary = latestCommText.substring(0, secondCommaIndex).trim();
-      } else {
-        // If less than two commas, keep the whole relevant part (maybe up to first comma or whole line if short)
-        result.latestCommentary = latestCommText; // Keep full line for now if fewer than 2 commas
+      const commentaryTextForEvent = secondCommaIndex !== -1 
+        ? latestCommTextRaw.substring(0, secondCommaIndex).trim()
+        : latestCommTextRaw;
+      
+      console.log(`[EventDebug] Text for event detection (commentaryTextForEvent): "${commentaryTextForEvent}"`);
+      
+      // Create a unique key for this delivery by combining over number and delivery text
+      const uniqueDeliveryKey = `${overNumber}-${commentaryTextForEvent}`;
+      
+      result.latestCommentary = `${overNumber ? overNumber + ' ' : ''}${commentaryTextForEvent}`;
+
+      // Check if we've already processed this exact commentary
+      const isCommentaryProcessed = processedCommentaries.has(uniqueDeliveryKey);
+      
+      // If no wicket detected yet from score, check commentary for events
+      if (!result.lastEvent && !isCommentaryProcessed) {
+        const eventFromComm = detectEventFromCommentary(commentaryTextForEvent);
+        if (eventFromComm && canTriggerNewEvent(url, eventFromComm)) {
+          result.lastEvent = eventFromComm;
+          console.log(`[EventDebug] New event detected from commentary: ${eventFromComm} for delivery: ${uniqueDeliveryKey}`);
+          processedCommentaries.add(uniqueDeliveryKey); // Add to processed set
+        }
+      } else if (isCommentaryProcessed && !result.lastEvent) {
+        console.log(`[EventDebug] Skipping duplicate delivery: ${uniqueDeliveryKey}`);
       }
-      console.log(`Latest commentary processed: ${result.latestCommentary}`);
     } else {
-         console.log("Could not find commentary lines with the specified selector.");
+      console.log('[EventDebug] No commentary lines found with selector.');
     }
-    // --- END ADDED ---
+
+    // Store processed commentaries
+    processedCommentaryByUrl[url] = processedCommentaries;
+    
+    // Store current state for next comparison
+    if (currentWicketCount !== null) { // Only update if currentWicketCount is valid
+      previousSelectedMatchState[url] = {
+        wicketCount: currentWicketCount,
+        score: result.score,
+        latestCommentary: result.latestCommentary,
+        deliveryIdentifier: result.deliveryIdentifier // Also store deliveryIdentifier in state
+      };
+    }
+    
+    // Store the current event for next comparisons
+    if (result.lastEvent) {
+      previousEventByUrl[url] = result.lastEvent;
+    }
+
+    console.log(`[EventDebug] Final event for this update: ${result.lastEvent || 'none'}`);
 
     // Update Tray Tooltip Logic (include CRR/RRR)
     let displayValue = null;
@@ -784,8 +1101,9 @@ async function fetchDetailedScore(url) {
 
   } catch (error) {
     console.error('Error fetching detailed score:', error);
+    // Ensure state isn't updated with stale data on error
     selectedMatchLiveScore = null;
-    updateTrayTooltip(null); // Update tooltip only on error
+    updateTrayTooltip(null);
     return null;
   }
 }
@@ -800,13 +1118,25 @@ ipcMain.handle('fetch-matches', async () => {
   }
 });
 
-ipcMain.handle('fetch-detailed-score', async (_, url) => {
-  try {
-    return await fetchDetailedScore(url);
-  } catch (error) {
-    console.error('Error in fetch-detailed-score handler:', error);
-    return null;
+ipcMain.handle('fetch-detailed-score', async (_event, url) => {
+  console.log(`IPC Invoked: fetch-detailed-score for ${url} (Initial Fetch)`);
+  currentMatchUrl = url;
+
+  const details = await fetchDetailedScore(url);
+
+  if (details) {
+    // Cache the true state from the fetch, including any event found.
+    // This is important for the subsequent periodic updates to compare against.
+    previousSelectedMatchState[url] = { ...details };
+    
+    // For the *initial* data sent back to the renderer via invoke,
+    // explicitly nullify event fields to prevent animation on first load.
+    const initialDetailsForRenderer = { ...details, lastEvent: null, deliveryIdentifier: null };
+    console.log(`[IPC Initial Fetch] Returning details for ${url} with lastEvent nullified for renderer.`);
+    return initialDetailsForRenderer;
   }
+  console.log(`[IPC Initial Fetch] No details found for ${url}.`);
+  return null;
 });
 
 ipcMain.on('select-match', (_, url) => {
@@ -832,6 +1162,29 @@ ipcMain.on('set-always-on-top', (_, isPinned) => {
 });
 // --- END ADDED ---
 
+// --- ADDED: Window Resize Handler ---
+ipcMain.on('resize-window', (_, isMinimized) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    console.log(`Resizing window for minimized: ${isMinimized}`);
+    
+    // Get current position and bounds
+    const bounds = mainWindow.getBounds();
+    
+    // Set new height based on minimized state
+    const newHeight = isMinimized ? WINDOW_HEIGHT_MINIMIZED : WINDOW_HEIGHT;
+    
+    // Keep the same X position and width, but update the height
+    // Also adjust Y position to maintain the bottom anchoring
+    mainWindow.setBounds({
+      x: bounds.x,
+      y: bounds.y + (bounds.height - newHeight), // Move down by the difference to keep bottom edge in same place
+      width: bounds.width,
+      height: newHeight
+    }, true); // true for animated transition
+  }
+});
+// --- END ADDED ---
+
 // --- Window Creation ---
 function createWindow() {
   console.log('Creating main window...');
@@ -843,7 +1196,7 @@ function createWindow() {
 
   // Set background to fully transparent for both dev and prod
   const bgColor = '#00000000';
-  
+
   mainWindow = new BrowserWindow({
     width: windowWidth,
     height: windowHeight,
@@ -1029,8 +1382,21 @@ function createTray() {
       label: 'Refresh Data',
       click: async () => {
         try {
-          await fetchAndParseCricbuzz(); // Fetch data
-          mainWindow?.webContents.send('refresh-data'); // Notify renderer
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            if (currentMatchUrl) {
+              // If a match is selected, refresh its details
+              console.log(`Manual refresh triggered for selected match: ${currentMatchUrl}`);
+              const details = await fetchDetailedScore(currentMatchUrl);
+              if (details) {
+                mainWindow.webContents.send('update-selected-details', details);
+              }
+            } else {
+              // If on the match list, refresh the list
+              console.log('Manual refresh triggered for match list.');
+              await fetchAndParseCricbuzz(); 
+              mainWindow.webContents.send('refresh-data');
+            }
+          }
         } catch (error) {
             console.error('Error during manual refresh:', error);
         }
@@ -1065,18 +1431,17 @@ function createTray() {
 
 // --- App Lifecycle ---
 app.whenReady().then(() => {
-  createWindow(); // Create the initial window (hidden)
+  createWindow();
   createTray();
 
-  // Start periodic updates for the match list
+  // Start periodic updates for the match list (less frequent)
   setInterval(async () => {
     try {
-      // Only fetch list if no match is selected
-      if (!currentMatchUrl) { 
+      // Only fetch list if no match is selected AND window exists
+      if (!currentMatchUrl && mainWindow && !mainWindow.isDestroyed()) { 
         console.log('Periodic refresh triggered for match list.');
         await fetchAndParseCricbuzz();
-        // Send refresh signal ONLY if list is potentially visible
-        mainWindow?.webContents.send('refresh-data'); 
+        mainWindow.webContents.send('refresh-data'); 
       }
     } catch(error) {
         console.error('Error during periodic list refresh:', error);
@@ -1085,29 +1450,24 @@ app.whenReady().then(() => {
 
   // Start periodic updates for the SELECTED match details (more frequent)
   setInterval(async () => {
-    if (mainWindow && currentMatchUrl) { // Only run if window exists and a match is selected
+    if (mainWindow && !mainWindow.isDestroyed() && currentMatchUrl) { // Only run if window exists and a match is selected
       try {
         console.log(`Periodic refresh triggered for selected match: ${currentMatchUrl}`);
         const details = await fetchDetailedScore(currentMatchUrl);
-        // Send updated details to renderer if needed (optional, depends on UI needs)
         if (details) {
-          mainWindow.webContents.send('update-selected-details', details); // Send updated details
+          mainWindow.webContents.send('update-selected-details', details); 
         }
       } catch (error) {
         console.error(`Error during periodic detail refresh for ${currentMatchUrl}:`, error);
       }
     }
-  }, DETAILED_UPDATE_INTERVAL_SECONDS * 1000); // Use the more frequent interval
+  }, DETAILED_UPDATE_INTERVAL_SECONDS * 1000); 
 
   app.on('activate', () => {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) {
-        // Check if mainWindow is null or destroyed before creating
         if (!mainWindow || mainWindow.isDestroyed()) {
           createWindow();
         } else {
-          // If it exists but is hidden, show it
           if (!mainWindow.isVisible()) {
             mainWindow.show();
           }
