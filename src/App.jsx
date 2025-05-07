@@ -5,7 +5,8 @@ function App() {
   const [matches, setMatches] = useState([]);
   const [selectedMatchData, setSelectedMatchData] = useState(null);
   const [isMinimizedView, setIsMinimizedView] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // For initial list load
+  const [matchLoading, setMatchLoading] = useState(false); // For individual match load
   const [error, setError] = useState(null);
   const [theme, setTheme] = useState('dark'); // Default theme state
   const [commentary, setCommentary] = useState('');
@@ -19,6 +20,7 @@ function App() {
   const eventTimeoutRef = useRef(null);
   const overlayTimeoutRef = useRef(null);
   const processedEventInstanceRef = useRef(null); // Ref to store the last processed event instance
+  const isMatchJustSelected = useRef(false); // Ref to track if a match was just selected
 
   // --- Data Fetching ---
   const fetchData = async () => {
@@ -109,19 +111,25 @@ function App() {
         eventInstanceId = `${details.lastEvent}-${details.latestCommentary?.substring(0, 30)}`;
       }
 
-      console.log(`[App.jsx] Current event instance: ${eventInstanceId}, Previously processed: ${processedEventInstanceRef.current}`);
+      console.log(`[App.jsx] Event check: ID='${eventInstanceId}', PrevProcessed='${processedEventInstanceRef.current}', isMatchJustSelected='${isMatchJustSelected.current}'`);
 
-      if (eventInstanceId !== processedEventInstanceRef.current) {
-        console.log(`[App.jsx] New unique event detected: ${eventInstanceId}. Triggering animation.`);
-        resetAnimation(details.lastEvent);
+      if (isMatchJustSelected.current) {
+        console.log(`[App.jsx] First event-bearing update for new/re-selected match. Suppressing animation for: ${eventInstanceId}`);
         processedEventInstanceRef.current = eventInstanceId;
+        isMatchJustSelected.current = false; // Reset the flag
       } else {
-        console.log(`[App.jsx] Duplicate event instance detected: ${eventInstanceId}. Animation suppressed.`);
+        if (eventInstanceId !== processedEventInstanceRef.current) {
+          console.log(`[App.jsx] New unique event detected: ${eventInstanceId}. Triggering animation.`);
+          resetAnimation(details.lastEvent);
+          processedEventInstanceRef.current = eventInstanceId;
+        } else {
+          console.log(`[App.jsx] Duplicate event instance detected: ${eventInstanceId}. Animation suppressed.`);
+        }
       }
     } else {
       // If there's no current event, clear the processed event ref
-      if (processedEventInstanceRef.current !== null) {
-        console.log('[App.jsx] No active event. Clearing processedEventInstanceRef.');
+      if (!isMatchJustSelected.current && processedEventInstanceRef.current !== null) {
+        console.log('[App.jsx] No active event in this update (lastEvent is null). Clearing processedEventInstanceRef.');
         processedEventInstanceRef.current = null;
       }
     }
@@ -147,8 +155,11 @@ function App() {
 
     const removeToggleListener = window.electronAPI.onToggleView(() => {
       console.log('Toggle view triggered');
-      setIsMinimizedView(prev => !prev);
-      window.electronAPI.resizeWindow(!isMinimizedView); // Resize window when toggling view
+      setIsMinimizedView(prevMinimized => {
+        const newMinimizedState = !prevMinimized;
+        window.electronAPI.resizeWindow(newMinimizedState);
+        return newMinimizedState;
+      });
     });
 
     const removeThemeListener = window.electronAPI.onSetTheme((newTheme) => {
@@ -201,12 +212,37 @@ function App() {
   };
 
   // --- Handlers ---
-  const handleMatchSelect = (url) => {
-    console.log("Match selected:", url);
-    window.electronAPI.selectMatch(url); // Tell main process
-    fetchDetails(url); // Fetch details immediately
+  const handleMatchSelect = async (url) => {
+    console.log("[App.jsx] Match selected (or re-selected):", url);
+    isMatchJustSelected.current = true; // Mark that a match selection is in progress
+    processedEventInstanceRef.current = null; // Reset for the new match's event logic
     setShowCommentary(false);
-    processedEventInstanceRef.current = null; // Reset processed event when changing matches
+    setMatchLoading(true); // Show loading state for this specific match
+    setError(null); // Clear previous errors
+
+    window.electronAPI.selectMatch(url); // Inform main process of selection
+
+    try {
+      console.log("[App.jsx] Fetching initial details for selected match:", url);
+      const initialDetails = await window.electronAPI.fetchDetailedScore(url);
+      if (initialDetails) {
+        // Main process sends lastEvent:null for this initial fetch via invoke.
+        // So, setSelectedMatchData here won't trigger animation through handleMatchDataUpdate's event logic.
+        setSelectedMatchData(initialDetails);
+        console.log("[App.jsx] Initial details set for match selection. LastEvent from main (should be null):", initialDetails.lastEvent);
+        // isMatchJustSelected.current remains true; it will be reset by the first *event-bearing* periodic update.
+      } else {
+        console.error("Error: No initial details returned for selected match.", url);
+        setError('Failed to load match details. Please try again or select another match.');
+        setSelectedMatchData(null); // Clear selection if fetch fails
+      }
+    } catch (err) {
+      console.error("Error fetching initial details in handleMatchSelect:", err);
+      setError('Failed to fetch match details. An error occurred.');
+      setSelectedMatchData(null);
+    } finally {
+      setMatchLoading(false);
+    }
   };
 
   const toggleCommentary = () => {
@@ -294,11 +330,16 @@ function App() {
   };
 
   // --- Rendering ---
+  if (loading) { // Initial list loading
+    return <div className="container loading"><p>Loading matches...</p></div>;
+  }
+
   if (error) {
     return (
       <div className="container error">
         <p>Error: {error}</p>
-        <button onClick={fetchData}>Retry</button>
+        <button onClick={() => { setError(null); fetchData();}}>Retry List</button>
+        {selectedMatchData && <button onClick={() => { setError(null); setSelectedMatchData(null); }}>Back to List</button>}
       </div>
     );
   }
@@ -325,6 +366,8 @@ function App() {
             )}
           </ul>
         </div>
+      ) : matchLoading ? ( // Loading state for individual match
+        <div className="container loading"><p>Loading match details...</p></div>
       ) : (
         // Detail View (minimized or full) with event overlay
         <React.Fragment>
@@ -344,8 +387,10 @@ function App() {
               className="icon-button expand-button" 
               onClick={() => {
                 console.log("[Resize Debug] Expanding view");
-                setIsMinimizedView(false);
-                window.electronAPI.resizeWindow(false); // Resize window when expanding
+                setIsMinimizedView(prevMinimized => {
+                    window.electronAPI.resizeWindow(false); // Tell main process to expand
+                    return false; // New state for isMinimizedView
+                });
               }}
               title="Expand view">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -381,7 +426,7 @@ function App() {
           {/* Icon Button Group */}
           <div className="icon-button-group">
             {/* Back button (left) */}
-            <button className="icon-button back-button" onClick={() => { setSelectedMatchData(null); processedEventInstanceRef.current = null; }} title="Back to list">
+            <button className="icon-button back-button" onClick={() => { setSelectedMatchData(null); processedEventInstanceRef.current = null; isMatchJustSelected.current = false; /* Clear flag when going back */ }} title="Back to list">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
@@ -410,8 +455,10 @@ function App() {
             {/* Minimize button (right) */}
             <button className="icon-button minimize-button" onClick={() => {
               console.log("[Resize Debug] Minimizing view");
-              setIsMinimizedView(true);
-              window.electronAPI.resizeWindow(true); // Resize window when minimizing
+              setIsMinimizedView(prevMinimized => {
+                  window.electronAPI.resizeWindow(true); // Tell main process to minimize
+                  return true; // New state for isMinimizedView
+              });
             }} title="Minimize view">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="5" y1="12" x2="19" y2="12" />
