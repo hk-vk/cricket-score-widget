@@ -476,4 +476,30 @@ body {
 
 .match-list li:hover {
   animation: glow 1.5s infinite;
+}
+
+.score-line {
+  margin-bottom: 5px; /* Example adjustment */
+}
+
+.main-score {
+  font-weight: bold; /* Example */
+}
+
+.opponent-score {
+  color: #bbb; /* Slightly dimmer than main score example */
+}
+
+.run-rate {
+  font-size: 0.8em; /* Smaller font size */
+  color: #999; /* Gray color */
+  margin-left: 5px; /* Add a small space */
+}
+
+.crr {
+  /* Specific styles for CRR if needed */
+}
+
+.rrr {
+  /* Specific styles for RRR if needed */
 } 

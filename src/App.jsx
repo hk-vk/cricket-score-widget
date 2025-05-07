@@ -268,11 +268,24 @@ function App() {
             </button>
           </div>
 
-          <h3>{selectedMatchData.title}</h3>
-          <p className="score">{selectedMatchData.score}</p>
-          {selectedMatchData.opponent_score && <p className="opponent-score">{selectedMatchData.opponent_score}</p>}
-          <p className="status">{selectedMatchData.status}</p>
-          
+          <div className="match-header">
+            <h3>{selectedMatchData.title}</h3>
+            {/* Updated Score Line to include CRR/RRR */}
+            <p className="score-line">
+              <span className="main-score">{selectedMatchData.score}</span>
+              {selectedMatchData.crr && (
+                <span className="run-rate crr">&nbsp; CRR: {selectedMatchData.crr}</span>
+              )}
+              {selectedMatchData.rrr && (
+                <span className="run-rate rrr">&nbsp; RRR: {selectedMatchData.rrr}</span>
+              )}
+              {selectedMatchData.opponent_score ? 
+                <span className="opponent-score">&nbsp; | {selectedMatchData.opponent_score}</span> 
+                : ''}
+            </p>
+            <p className="status">{selectedMatchData.status}</p>
+          </div>
+
           <BattersTable batters={selectedMatchData.batters} />
           <BowlersTable bowlers={selectedMatchData.bowlers} />
           
