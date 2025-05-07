@@ -504,4 +504,13 @@ body {
 
 .rrr {
   /* Specific styles for RRR if needed */
+}
+
+.latest-commentary {
+  font-size: 0.9em; /* Slightly smaller than default */
+  color: #b0b0b0; /* Lighter gray */
+  margin-top: 8px; /* Add some space above */
+  text-align: left; /* Align text to the left */
+  line-height: 1.4;
+  font-style: italic;
 } 

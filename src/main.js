@@ -497,6 +497,7 @@ async function fetchDetailedScore(url) {
       status: '', // Match status (e.g., Live, Result, Stumps)
       crr: null, // ADDED: Current Run Rate
       rrr: null, // ADDED: Required Run Rate
+      latestCommentary: null, // ADDED: Latest commentary snippet
       batters: [], // Array of { name, runs, balls, fours, sixes, sr, isStriker }
       bowlers: [], // Array of { name, overs, maidens, runs, wickets, eco, isCurrent }
       team1_name: null,
@@ -734,6 +735,32 @@ async function fetchDetailedScore(url) {
     if (rrrElement.length > 0) {
       result.rrr = rrrElement.text().trim();
       console.log(`Found RRR: ${result.rrr}`);
+    }
+    // --- END ADDED ---
+
+    // --- ADDED: Extract and Process Latest Commentary ---
+    const commentaryLines = $('p.cb-com-ln.cb-col.cb-col-90'); // Select potential commentary lines
+    if (commentaryLines.length > 0) {
+      // Often the first one after the score section is the latest ball
+      let latestCommText = $(commentaryLines[0]).text().trim();
+      
+      // Find the index of the second comma
+      let firstCommaIndex = latestCommText.indexOf(',');
+      let secondCommaIndex = -1;
+      if (firstCommaIndex !== -1) {
+        secondCommaIndex = latestCommText.indexOf(',', firstCommaIndex + 1);
+      }
+
+      // Truncate if the second comma exists
+      if (secondCommaIndex !== -1) {
+        result.latestCommentary = latestCommText.substring(0, secondCommaIndex).trim();
+      } else {
+        // If less than two commas, keep the whole relevant part (maybe up to first comma or whole line if short)
+        result.latestCommentary = latestCommText; // Keep full line for now if fewer than 2 commas
+      }
+      console.log(`Latest commentary processed: ${result.latestCommentary}`);
+    } else {
+         console.log("Could not find commentary lines with the specified selector.");
     }
     // --- END ADDED ---
 

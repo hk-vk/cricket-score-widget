@@ -284,6 +284,11 @@ function App() {
                 : ''}
             </p>
             <p className="status">{selectedMatchData.status}</p>
+            {selectedMatchData.latestCommentary && (
+              <p className="latest-commentary">
+                {selectedMatchData.latestCommentary}
+              </p>
+            )}
           </div>
 
           <BattersTable batters={selectedMatchData.batters} />
