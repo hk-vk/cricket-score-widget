@@ -107,38 +107,40 @@ function App() {
   // Handle match data updates with event detection
   const handleMatchDataUpdate = (details) => {
     console.log('[App.jsx] Received details in handleMatchDataUpdate:', details);
-    setSelectedMatchData(details); // Update match data first
+    setSelectedMatchData(details); // Update UI state first
 
     if (details?.lastEvent) {
       let eventInstanceId = null;
       if (details.deliveryIdentifier && details.deliveryIdentifier.trim() !== '') {
         eventInstanceId = `${details.lastEvent}-${details.deliveryIdentifier}`;
       } else {
-        // Fallback if deliveryIdentifier is not available
         eventInstanceId = `${details.lastEvent}-${details.latestCommentary?.substring(0, 30)}`;
       }
-
       console.log(`[App.jsx] Event check: ID='${eventInstanceId}', PrevProcessed='${processedEventInstanceRef.current}', isMatchJustSelected='${isMatchJustSelected.current}'`);
-
+      
       if (isMatchJustSelected.current) {
-        console.log(`[App.jsx] First event-bearing update for new/re-selected match. Suppressing animation for: ${eventInstanceId}`);
+        // This is the first event-bearing update since match selection.
+        // Record it as processed to avoid animating it if it's a stale event from before selection,
+        // or to set the baseline if it's genuinely the first event.
+        // Do not animate.
+        console.log(`[App.jsx] First event-bearing update for new/re-selected match. Storing ID, suppressing animation for: ${eventInstanceId}`);
         processedEventInstanceRef.current = eventInstanceId;
-        isMatchJustSelected.current = false; // Reset the flag
+        isMatchJustSelected.current = false; // Reset the flag, subsequent events will be animated if new.
       } else {
+        // Not the first update post-selection, apply normal animation logic.
         if (eventInstanceId !== processedEventInstanceRef.current) {
           console.log(`[App.jsx] New unique event detected: ${eventInstanceId}. Triggering animation.`);
           resetAnimation(details.lastEvent);
-          processedEventInstanceRef.current = eventInstanceId;
+          processedEventInstanceRef.current = eventInstanceId; // Record this new event as processed.
         } else {
-          console.log(`[App.jsx] Duplicate event instance detected: ${eventInstanceId}. Animation suppressed.`);
+          console.log(`[App.jsx] Duplicate event instance detected (already processed or currently animating): ${eventInstanceId}. Animation suppressed.`);
         }
       }
     } else {
-      // If there's no current event, clear the processed event ref
-      if (!isMatchJustSelected.current && processedEventInstanceRef.current !== null) {
-        console.log('[App.jsx] No active event in this update (lastEvent is null). Clearing processedEventInstanceRef.');
-        processedEventInstanceRef.current = null;
-      }
+      // No event in this update.
+      // isMatchJustSelected.current might still be true if the first few updates had no event.
+      // We do NOT change processedEventInstanceRef.current here. It should hold the ID of the last animated event.
+      console.log(`[App.jsx] Update received with no event. isMatchJustSelected='${isMatchJustSelected.current}'. processedEventInstanceRef='${processedEventInstanceRef.current}' (remains unchanged).`);
     }
   };
 
